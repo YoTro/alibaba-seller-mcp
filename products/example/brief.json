@@ -1,0 +1,25 @@
+{
+  "brief": "XXXX Salt Blaster: handheld salt-firing insect killer with infrared laser aiming, durable ABS body, for home, kitchen and garden mosquito & fly control. Reusable, refilled with ordinary table salt, no chemicals.",
+  "brand": ["XXXX", "YYYYYY"],
+  "category_id": 201335115,
+
+  "images": {
+    "main":   [
+      { "file_id": "REPLACE_ID_1", "url": "https://sc04.alicdn.com/kf/REPLACE_1.jpg" },
+      { "file_id": "REPLACE_ID_2", "url": "https://sc04.alicdn.com/kf/REPLACE_2.jpg" },
+      { "file_id": "REPLACE_ID_3", "url": "https://sc04.alicdn.com/kf/REPLACE_3.jpg" },
+      { "file_id": "REPLACE_ID_4", "url": "https://sc04.alicdn.com/kf/REPLACE_4.jpg" }
+    ],
+    "detail": [
+      "https://sc04.alicdn.com/kf/REPLACE_DETAIL_1.jpg",
+      "https://sc04.alicdn.com/kf/REPLACE_DETAIL_2.jpg"
+    ]
+  },
+
+  "price": { "unit": "Set", "moq": 10, "tiers": [[10, 12.90], [500, 9.90], [1000, 8.20]] },
+
+  "facts": { "place_of_origin": "China", "material": "ABS" },
+
+  "version": "premium",
+  "group": "908868315"
+}

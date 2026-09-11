@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alibaba-seller-mcp"
+version = "0.1.0"
+description = "MCP server for the Alibaba.com Global B2B open platform: seller auth, product upload/edit, local media & price ingestion, AI social content, and token usage stats."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "yotro" }]
+dependencies = [
+    "mcp>=2.0.0",
+    "pydantic>=2.0.0",
+    "requests>=2.31.0",
+    "anthropic>=1.0.0",
+    "pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+alibaba-seller-mcp = "alibaba_seller_mcp.server:main"
+alibaba-seller-auth = "alibaba_seller_mcp.authserver:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/alibaba_seller_mcp"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
