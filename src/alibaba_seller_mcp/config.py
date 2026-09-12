@@ -74,6 +74,10 @@ class Config:
     # take a local path (media, price files, manifests, save_to) are confined to
     # these subtrees. Defaults to the current working directory.
     allowed_paths: tuple[Path, ...] = field(default_factory=lambda: (Path.cwd().resolve(),))
+    # Soft ceiling on Claude tokens for ONE server session (0 = no limit). Guards
+    # against a runaway loop of AI calls, which is the only thing here that spends
+    # real money per attempt; the platform's own rate limits cover the rest.
+    ai_token_budget: int = 0
 
     @property
     def token_store_path(self) -> Path:
@@ -100,6 +104,16 @@ class Config:
             )
 
 
+def _int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(0, int(raw))
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a whole number of tokens, got {raw!r}") from exc
+
+
 def _allowed_paths() -> tuple[Path, ...]:
     raw = os.environ.get("ALIBABA_MCP_ALLOWED_DIRS", "")
     if not raw.strip():
@@ -111,6 +125,7 @@ def _allowed_paths() -> tuple[Path, ...]:
 def load_config() -> Config:
     return Config(
         allowed_paths=_allowed_paths(),
+        ai_token_budget=_int_env("ALIBABA_MCP_AI_TOKEN_BUDGET", 0),
         app_key=os.environ.get("ALIBABA_APP_KEY", ""),
         app_secret=os.environ.get("ALIBABA_APP_SECRET", ""),
         redirect_uri=os.environ.get("ALIBABA_REDIRECT_URI", ""),
@@ -179,3 +194,23 @@ def load_config() -> Config:
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
         social_model=os.environ.get("SOCIAL_MODEL", "claude-opus-5"),
     )
+
+
+def load_dotenv() -> None:
+    """Minimal ``.env`` loader (no dependency): set vars not already in the env.
+
+    Reads the first of ``./.env`` or the repo-root ``.env``. Public because every
+    entry point needs it before :func:`load_config` — the MCP server and the CLI
+    OAuth helper alike — and the helper should not have to import the server (and
+    its whole tool registry) to get at it.
+    """
+    for candidate in (Path.cwd() / ".env", Path(__file__).resolve().parents[2] / ".env"):
+        if not candidate.exists():
+            continue
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        break

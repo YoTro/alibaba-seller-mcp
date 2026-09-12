@@ -14,23 +14,24 @@ tools that touch the filesystem — confines paths to the configured allowlist.
 
 import functools
 import json
-import os
 from pathlib import Path
 from typing import Any, Callable
 
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
-from .ai.product_detail import ProductDetailGenerator
-from .ai.social import SocialContentGenerator
+from .ai import DetailSpecGenerator, ProductDetailGenerator, SocialContentGenerator
 from .alibaba.auth import SellerAuth
 from .alibaba.categories import CategoryService
 from .alibaba.client import AlibabaClient
 from .alibaba.errors import AlibabaError
 from .alibaba.groups import GroupService
-from .alibaba.products import ProductManifest, ProductService
+from .alibaba.manifest import ProductManifest
+from .alibaba.products import ProductService
 from .alibaba.videos import VideoService
-from .config import Config, load_config
+from .config import Config, load_config, load_dotenv
+from .listing import PublishFromBrief, prepare_brief_media
+from .rendering import DetailSpec, render_spec
 from .files.readers import FileIngestError, read_image, read_video
 from .models import (
     AuthStatusResult,
@@ -38,6 +39,7 @@ from .models import (
     BriefPublishResult,
     CategoryAttributesResult,
     CompleteAuthResult,
+    DetailImagesResult,
     GroupChild,
     GroupResult,
     MediaInfoResult,
@@ -45,6 +47,7 @@ from .models import (
     ProductDetailResult,
     PublishResult,
     RawCallResult,
+    RenderedImage,
     RenderDraftField,
     RenderDraftResult,
     Result,
@@ -61,7 +64,30 @@ from .pathsafe import PathNotAllowedError, ensure_allowed
 from .storage import TokenStore, UsageStore
 from .usage.tracker import UsageTracker
 
-mcp = MCPServer("alibaba-seller-mcp")
+# Built-in workflow guidance, delivered to every MCP client as server instructions.
+INSTRUCTIONS = """\
+Alibaba.com Global B2B seller tools. Recommended listing workflow:
+
+1. Authorize: alibaba_auth_status → (if needed) alibaba_get_authorize_url, then
+   alibaba_complete_authorization_from_url with the redirected URL.
+2. Prepare a product folder with brief.json (facts only — never invent specs,
+   patents or certifications) plus the seller's photos: a white-background hero
+   render, a side render, and lifestyle scenes. Put them under brief.photos.
+3. Media is code-rendered, not AI-drawn: listing_media_prepare builds 4-6 main
+   images (square renders, 3:4 scene crops) and detail pages from detail_spec.json.
+   If the spec is missing the AI writes it once (~1-2k tokens); afterwards edit the
+   JSON and call detail_images_render — no tokens. Prefer this over image models:
+   text-heavy pages (specs, steps, OEM/ODM terms) must be pixel-exact.
+4. Publish with product_publish_from_brief(draft=True). It auto-runs step 3 when
+   images.main / images.detail are empty and photos are present, uploads everything
+   to the photo bank, and returns warnings — read them; an empty images warning means
+   the upload failed.
+5. Verify with product_render_draft (or alibaba_raw_call schema.render.draft) that
+   scImages has 4-6 fileIds and detailImage lists every detail page. Each publish
+   creates a NEW draft — tell the seller to delete superseded drafts in the console.
+"""
+
+mcp = MCPServer("alibaba-seller-mcp", instructions=INSTRUCTIONS)
 
 _VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv", ".webm"}
 
@@ -80,6 +106,8 @@ class Context:
         self._tracker: UsageTracker | None = None
         self._social: SocialContentGenerator | None = None
         self._detail: ProductDetailGenerator | None = None
+        self._detail_spec: DetailSpecGenerator | None = None
+        self._publishing: PublishFromBrief | None = None
 
     @property
     def config(self) -> Config:
@@ -141,31 +169,94 @@ class Context:
             self._detail = ProductDetailGenerator(self.config, self.tracker)
         return self._detail
 
+    @property
+    def detail_spec(self) -> DetailSpecGenerator:
+        if self._detail_spec is None:
+            self._detail_spec = DetailSpecGenerator(self.config, self.tracker)
+        return self._detail_spec
+
+    @property
+    def publishing(self) -> PublishFromBrief:
+        """The brief → listing application service, wired to this context."""
+        if self._publishing is None:
+            self._publishing = PublishFromBrief(
+                self.products, detail=self.detail, detail_spec=self.detail_spec,
+                allowed_roots=self.config.allowed_paths,
+            )
+        return self._publishing
+
 
 ctx = Context()
 
 
 def tool_errors(model: type[Result]) -> Callable:
-    """Decorator: on a known error, return the tool's result model with ok=False
-    instead of raising a raw traceback. `model` is the tool's return type."""
+    """Decorator: turn an anticipated failure into a proper MCP **tool execution
+    error** instead of a raw traceback. `model` is the tool's return type.
+
+    The spec (MCP 2025-11-25, Tools § Error Handling) wants API, validation and
+    business failures reported as `isError: true` on the `CallToolResult`, so a
+    client can tell "the tool ran and failed" from "the tool succeeded". Returning
+    only a body with `ok=False` leaves `isError` false and the failure invisible at
+    the protocol level. Returning the result explicitly lets us set the flag and
+    still hand back the tool's typed model (`ok=False`, `error`, `error_type`) as
+    structured content — the SDK passes a `CallToolResult` through untouched and
+    skips output-schema validation when `is_error` is set.
+    """
 
     def deco(fn: Callable) -> Callable:
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
-                return fn(*args, **kwargs)
+                result = fn(*args, **kwargs)
             except (
                 AlibabaError,
                 FileIngestError,
                 PathNotAllowedError,
                 ValueError,
                 RuntimeError,
+                OSError,          # a missing/unreadable photo is the seller's typo, not a crash
             ) as exc:
-                return model(ok=False, error=str(exc), error_type=type(exc).__name__)
+                return _as_tool_error(model(), type(exc).__name__, str(exc))
+            rejected = _business_failure(result)
+            return result if rejected is None else _as_tool_error(result, "BusinessFailure", rejected)
 
         return wrapper
 
     return deco
+
+
+def _as_tool_error(payload: Result, error_type: str, message: str) -> CallToolResult:
+    """The tool's own result model, marked failed, inside an `isError` result."""
+    failed = payload.model_copy(update={"ok": False, "error": message, "error_type": error_type})
+    return CallToolResult(
+        content=[TextContent(type="text", text=f"{error_type}: {message}")],
+        structured_content=failed.model_dump(mode="json", by_alias=True),
+        is_error=True,
+    )
+
+
+def _business_failure(result: Any) -> str | None:
+    """Message for a call the gateway accepted but the business layer rejected.
+
+    A clean gateway ``code: "0"`` with a false verdict (``biz_success`` on a
+    publish, ``success`` on a video relation) is the platform saying "your
+    request was well-formed and I still refused it". No exception is raised for
+    it, so without this check the tool reports success for work that never
+    happened.
+
+    Which field holds the verdict is declared by the result model
+    (``Result.OUTCOME_FIELD``), not guessed from its name — a tool that reports
+    state has look-alike fields whose ``False`` is an answer, not a failure.
+    """
+    field_name = getattr(type(result), "OUTCOME_FIELD", None)
+    if not field_name:
+        return None
+    verdict = getattr(result, field_name, None)
+    if isinstance(verdict, str):
+        verdict = {"true": True, "false": False}.get(verdict.strip().lower(), verdict)
+    if verdict is not False:        # True, None (not reported) or an unexpected shape
+        return None
+    return result.failure_message()
 
 
 def _anno(
@@ -356,34 +447,42 @@ def product_publish_from_brief(
     Claude enriches the rest.
 
     Provide `brief` inline or a `brief_path` (JSON file, confined to allowed dirs).
-    The brief needs: `brief` (short description), `category_id`, `images`
-    (main 4–6 + detail), `price` ({unit, moq, tiers}), and `facts` (place_of_origin,
-    material). Claude writes the title, highlights, detail modules, FAQs, custom
+    Both forms support every key, `photos` included.
+    The brief needs: `brief` (short description), `category_id`, `price`
+    ({unit, moq, tiers}), `facts` (place_of_origin, material, …) and either
+    `images` (main 4–6 + detail — local paths, photo-bank refs or URLs) or `photos`
+    ({hero, side, scenes:[{path, caption}]}). With `photos` and empty `images`, the
+    main images are cropped and the detail pages are code-rendered from the brief's
+    `detail_spec` (or a `detail_spec.json` in its folder, written once by AI if
+    missing) before upload.
+    Relative paths and the rendered-image output folder resolve against the
+    brief's **base directory**: the file's own folder for `brief_path`, or the
+    `base_dir` key for an inline brief. An inline brief with `photos` must set
+    it — rendering writes an `images/` tree, and the server will not guess where
+    that belongs. Claude writes the title, highlights, detail modules, FAQs, custom
     parameters, and picks the descriptive category attributes from the schema's
     allowed options. Returns the draft `product_id`, `missing_required`, `ai_filled`
-    (what was auto-generated), and `warnings` (e.g. fewer than 4 main images —
-    AI cannot generate real product photos). Defaults to `draft=True`.
+    (what was auto-generated), and `warnings` (read them: an image upload failure
+    surfaces here). Defaults to `draft=True`; every call creates a new draft.
     """
-    from . import brief as brief_flow
-
+    service = ctx.publishing
+    base_dir = None
     if brief_path:
-        brief = json.loads(Path(_safe_read(brief_path)).read_text(encoding="utf-8"))
+        brief, base_dir = service.load(brief_path)   # relative paths resolve against the brief's folder
     if not brief:
         raise ValueError("Provide `brief` (inline) or `brief_path`.")
-    token = ctx.auth.get_valid_token(account_key or None)
-    r = brief_flow.publish_from_brief(
-        brief, products=ctx.products, detail=ctx.detail, token=token,
-        allowed_roots=ctx.config.allowed_paths, draft=draft,
+    out = service.run(
+        brief, token=ctx.auth.get_valid_token(account_key or None), base_dir=base_dir, draft=draft
     )
     return BriefPublishResult(
-        product_id=r.get("product_id"),
-        biz_success=r.get("biz_success"),
-        filled_fields=r.get("filled_fields", []),
-        missing_required=r.get("missing_required", []),
-        warnings=r.get("warnings", []),
-        ai_filled=r.get("ai_filled", []),
-        needs_more_main_images=r.get("needs_more_main_images"),
-        response=r.get("response", {}),
+        product_id=out.product_id,
+        biz_success=out.biz_success,
+        filled_fields=out.filled_fields,
+        missing_required=out.missing_required,
+        warnings=out.warnings,
+        ai_filled=out.ai_filled,
+        needs_more_main_images=out.needs_more_main_images,
+        response=out.response,
     )
 
 
@@ -401,14 +500,19 @@ def product_render_draft(
     )
 
 
-@mcp.tool(annotations=_anno("Update product", destructive=False, idempotent=True, open_world=True))
+@mcp.tool(annotations=_anno("Update product", destructive=True, idempotent=True, open_world=True))
 @tool_errors(PublishResult)
 def product_update(product_id: str, manifest_path: str, account_key: str = "") -> PublishResult:
-    """Incrementally update an existing product (schema.update) from a manifest.
+    """Overwrite an existing product (schema.update) with a **complete** manifest.
 
-    Only the fields present in the manifest are changed. Re-applying the same
-    manifest yields the same state (idempotent). Paths are confined to the
-    server's allowed directories.
+    Despite the API name this is NOT a partial update: the platform re-validates
+    the whole document and rejects a manifest that omits a required field (you
+    get `isError` with `isv.missing-parameter:...` naming each one). So send the
+    product's full manifest with your change applied, not just the changed
+    fields — anything you leave out is not preserved, it is refused. Read
+    `missing_required` in the result before treating an update as complete.
+    Re-applying the same complete manifest yields the same state (idempotent).
+    Paths are confined to the server's allowed directories.
     """
     token = ctx.auth.get_valid_token(account_key or None)
     manifest = ProductManifest.load(manifest_path, allowed_roots=ctx.config.allowed_paths)
@@ -420,6 +524,63 @@ def product_update(product_id: str, manifest_path: str, account_key: str = "") -
         missing_required=r.get("missing_required", []),
         response=r.get("response", {}),
     )
+
+
+# ── code-rendered listing media ───────────────────────────────────────────────
+def _rendered(paths: list[str]) -> list[RenderedImage]:
+    out = []
+    for p in paths:
+        a = read_image(p, load_bytes=False)
+        out.append(RenderedImage(path=p, width=a.width or 0, height=a.height or 0, size_bytes=a.size_bytes))
+    return out
+
+
+@mcp.tool(annotations=_anno("Prepare listing media (code-rendered)", idempotent=True, open_world=True))
+@tool_errors(DetailImagesResult)
+def listing_media_prepare(
+    brief_path: str, regenerate_spec: bool = False, extra_instructions: str = "", language: str = "English"
+) -> DetailImagesResult:
+    """Build main images and detail pages for a brief from its `photos`, without an
+    image model.
+
+    Main images: hero/side renders are cropped to the product and padded to
+    1000×1000; scenes are cropped to 3:4 / 4:3. Detail pages: rendered with Pillow
+    from `detail_spec.json` next to the brief. If that spec does not exist (or
+    `regenerate_spec=True`), Claude writes it once from the brief's facts — a compact
+    JSON of page templates (hero, features, steps, levels, callouts, chips, scenes,
+    spec_table, oem_odm, trust) — and it is saved for hand-editing. Outputs go to
+    `images/main` and `images/detail` beside the brief. Token usage is recorded
+    (label `detail_image_spec`).
+    """
+    brief_file = Path(_safe_read(brief_path))
+    brief = json.loads(brief_file.read_text(encoding="utf-8"))
+    if not brief.get("photos"):
+        raise ValueError("brief.photos is required ({hero, side?, scenes?})")
+    prep = prepare_brief_media(
+        brief, brief_file.parent, ctx.detail_spec, regenerate_spec=regenerate_spec,
+        extra_instructions=extra_instructions, language=language,
+        allowed_roots=ctx.config.allowed_paths,
+    )
+    return DetailImagesResult(
+        spec_path=prep.spec_path, spec_source=prep.spec_source, usage=prep.usage, notes=prep.notes,
+        main_images=_rendered(prep.main_paths), detail_images=_rendered(prep.detail_paths),
+    )
+
+
+@mcp.tool(annotations=_anno("Render detail images from spec", idempotent=True))
+@tool_errors(DetailImagesResult)
+def detail_images_render(spec_path: str, out_dir: str = "") -> DetailImagesResult:
+    """Re-render detail pages from a `detail_spec.json` — deterministic, no AI, no
+    tokens. Edit the spec's text and call this to refresh the images. Relative asset
+    paths resolve against the spec's folder; output defaults to `images/detail`
+    beside it. Pages come out as `NN_<type>.jpg`, width 1200, each < 3 MB.
+    """
+    spec_file = Path(_safe_read(spec_path))
+    spec = DetailSpec.model_validate(json.loads(spec_file.read_text(encoding="utf-8")))
+    out = Path(_safe_write(out_dir)) if out_dir else spec_file.parent / "images" / "detail"
+    paths = [str(p) for p in render_spec(spec, out, base_dir=spec_file.parent,
+                                         allowed_roots=ctx.config.allowed_paths)]
+    return DetailImagesResult(spec_path=str(spec_file), spec_source="existing", detail_images=_rendered(paths))
 
 
 # ── product groups ────────────────────────────────────────────────────────────
@@ -441,14 +602,15 @@ def product_group_get(group_id: str = "-1", account_key: str = "") -> GroupResul
 
 
 # ── video ↔ product relation ──────────────────────────────────────────────────
-@mcp.tool(annotations=_anno("Relate video to product", destructive=False, idempotent=True, open_world=True))
+@mcp.tool(annotations=_anno("Relate video to product", destructive=True, idempotent=True, open_world=True))
 @tool_errors(VideoRelateResult)
 def video_relate_product(
     video_id: str, product_id: str, target: str = "main", account_key: str = ""
 ) -> VideoRelateResult:
-    """Associate a video with a product. `target`: "main" (main-image video) or
-    "detail" (detail video). Numeric ids are auto-converted to the encrypted ids
-    the API needs. Re-relating the same pair is idempotent."""
+    """Set a product's video. `target`: "main" (main-image video) or "detail"
+    (detail video). Each is a single slot, so relating a video to a product that
+    already has one for that target replaces it. Numeric ids are auto-converted
+    to the encrypted ids the API needs. Re-relating the same pair is idempotent."""
     token = ctx.auth.get_valid_token(account_key or None)
     r = ctx.videos.relate_to_product(video_id, product_id, token, target=target)
     return VideoRelateResult(
@@ -603,22 +765,8 @@ def usage_summary_resource() -> str:
     return json.dumps(ctx.tracker.stats(group_by="model"), ensure_ascii=False, indent=2)
 
 
-def _load_dotenv() -> None:
-    """Minimal .env loader (no dependency): set vars not already in the env."""
-    for candidate in (Path.cwd() / ".env", Path(__file__).resolve().parents[2] / ".env"):
-        if not candidate.exists():
-            continue
-        for line in candidate.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-        break
-
-
 def main() -> None:
-    _load_dotenv()
+    load_dotenv()
     mcp.run()
 
 

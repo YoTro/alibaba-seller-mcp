@@ -55,6 +55,10 @@ def estimate_cost(
 class UsageTracker:
     def __init__(self, store: UsageStore):
         self.store = store
+        # Tokens recorded by THIS process. The on-disk log is the full history;
+        # a budget is about stopping a loop in the session that is running now,
+        # so it is counted in memory rather than re-read from the log per call.
+        self.session_tokens = 0
 
     def record(self, model: str, usage: Any, *, label: str = "", metadata: dict | None = None) -> dict[str, Any]:
         """Record one call from an Anthropic ``response.usage`` object (or dict)."""
@@ -77,6 +81,7 @@ class UsageTracker:
             "metadata": metadata or {},
         }
         self.store.append(record)
+        self.session_tokens += record["total_tokens"]
         return record
 
     def stats(

@@ -30,8 +30,7 @@ from urllib.parse import urlparse
 from .alibaba.auth import SellerAuth
 from .alibaba.client import AlibabaClient
 from .alibaba.errors import AlibabaError
-from .config import Config, load_config
-from .server import _load_dotenv
+from .config import Config, load_config, load_dotenv
 from .storage import TokenStore
 
 _SUCCESS_HTML = (
@@ -148,7 +147,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    _load_dotenv()
+    load_dotenv()
     config = load_config()
     config.require_alibaba()
     auth = _build_auth(config)
