@@ -10,3 +10,7 @@ venv/
 # Local runtime state (OAuth tokens, usage log) — never commit secrets
 .alibaba_seller_mcp/
 .DS_Store
+
+# Real product folders (photos, briefs with brand data) stay local; only the template is tracked
+products/*
+!products/example/

@@ -1,25 +1,385 @@
 {
-  "brief": "XXXX Salt Blaster: handheld salt-firing insect killer with infrared laser aiming, durable ABS body, for home, kitchen and garden mosquito & fly control. Reusable, refilled with ordinary table salt, no chemicals.",
-  "brand": ["XXXX", "YYYYYY"],
+  "brief": "YOURBRAND M1 Product Name: one paragraph of hard facts only — what it is, what it does, materials, dimensions, weight, performance numbers, warranty, target use. This text is the fact sheet every AI-generated field is derived from; nothing outside it may be invented.",
+  "product_name": "Product Name",
+  "model": "M1",
+  "brand": [
+    "YOURBRAND",
+    "M1"
+  ],
   "category_id": 201335115,
-
-  "images": {
-    "main":   [
-      { "file_id": "REPLACE_ID_1", "url": "https://sc04.alicdn.com/kf/REPLACE_1.jpg" },
-      { "file_id": "REPLACE_ID_2", "url": "https://sc04.alicdn.com/kf/REPLACE_2.jpg" },
-      { "file_id": "REPLACE_ID_3", "url": "https://sc04.alicdn.com/kf/REPLACE_3.jpg" },
-      { "file_id": "REPLACE_ID_4", "url": "https://sc04.alicdn.com/kf/REPLACE_4.jpg" }
+  "language": "en_US",
+  "ai": true,
+  "content": {
+    "title": "",
+    "highlights": "",
+    "company_intro": "",
+    "keywords": [],
+    "attributes": [],
+    "faqs": []
+  },
+  "photos": {
+    "hero": "photos/hero.png",
+    "side": "photos/side.png",
+    "scenes": [
+      {
+        "path": "photos/scene1.jpg",
+        "caption": "Kitchen"
+      },
+      {
+        "path": "photos/scene2.jpg",
+        "caption": "Outdoor"
+      }
     ],
-    "detail": [
-      "https://sc04.alicdn.com/kf/REPLACE_DETAIL_1.jpg",
-      "https://sc04.alicdn.com/kf/REPLACE_DETAIL_2.jpg"
+    "theme": {
+      "primary": "#F47A20",
+      "dark": "#1A1A1A",
+      "positive": "#2EA05A",
+      "negative": "#D63C3C",
+      "font_dir": null
+    }
+  },
+  "how_to_use": [
+    "Step one, exactly as the seller describes it",
+    "Step two",
+    "Step three"
+  ],
+  "parts": [
+    "part one (where it sits on the side render)",
+    "part two"
+  ],
+  "oem_odm": "custom colours, logo printing, retail packaging; samples available; contact for MOQ and lead time",
+  "images": {
+    "main": [],
+    "detail": []
+  },
+  "price": {
+    "unit": "Set",
+    "moq": 10,
+    "tiers": [
+      [
+        10,
+        12.9
+      ],
+      [
+        500,
+        9.9
+      ],
+      [
+        1000,
+        8.2
+      ]
     ]
   },
-
-  "price": { "unit": "Set", "moq": 10, "tiers": [[10, 12.90], [500, 9.90], [1000, 8.20]] },
-
-  "facts": { "place_of_origin": "China", "material": "ABS" },
-
+  "sale_props": {
+    "Color": [
+      "Orange"
+    ]
+  },
+  "lead_time": [
+    [
+      100,
+      7
+    ],
+    [
+      1000,
+      15
+    ]
+  ],
+  "sale_type": "normal",
+  "facts": {
+    "place_of_origin": "China",
+    "material": "ABS",
+    "brand": "YOURBRAND",
+    "model": "M1",
+    "Feature": [
+      "Eco-Friendly",
+      "Portable"
+    ],
+    "Use": [
+      "insect control"
+    ],
+    "Application": [
+      "Kitchen",
+      "Outdoor"
+    ],
+    "Season": [
+      "Spring",
+      "Summer"
+    ],
+    "Style": "Modern"
+  },
+  "features": [
+    "Feature one, factual",
+    "Feature two, factual"
+  ],
+  "keywords": [
+    "primary keyword",
+    "secondary keyword"
+  ],
   "version": "premium",
-  "group": "908868315"
+  "group": "908868315",
+  "detail_spec": {
+    "theme": {
+      "primary": "#F47A20",
+      "dark": "#1A1A1A"
+    },
+    "pages": [
+      {
+        "type": "hero",
+        "tagline": "Model M1  ·  One-line positioning",
+        "badges": [
+          "Benefit 1",
+          "Benefit 2",
+          "Benefit 3"
+        ],
+        "intro": "One sentence that says what the product does and for whom.",
+        "stats": [
+          {
+            "value": "120 g",
+            "label": "Weight"
+          },
+          {
+            "value": "2 Years",
+            "label": "Lifespan"
+          }
+        ]
+      },
+      {
+        "type": "features",
+        "title": "Why Buyers Choose It",
+        "subtitle": "Short subtitle.",
+        "items": [
+          {
+            "title": "Feature one",
+            "text": "One or two sentences."
+          },
+          {
+            "title": "Feature two",
+            "text": "One or two sentences."
+          },
+          {
+            "title": "Feature three",
+            "text": "One or two sentences."
+          }
+        ],
+        "note": "Optional one-line note under the cards."
+      },
+      {
+        "type": "steps",
+        "title": "How It Works",
+        "subtitle": "Optional subtitle.",
+        "steps": [
+          {
+            "title": "Step 1",
+            "text": "Do this."
+          },
+          {
+            "title": "Step 2",
+            "text": "Then this."
+          },
+          {
+            "title": "Step 3",
+            "text": "Done."
+          }
+        ],
+        "tip": {
+          "title": "Tip",
+          "text": "Optional tip box under the steps."
+        }
+      },
+      {
+        "type": "levels",
+        "title": "Adjustable Levels",
+        "subtitle": "Only for products with selectable levels (dose, speed, power).",
+        "levels": [
+          {
+            "label": "Level 1",
+            "intensity": 1,
+            "value": "≈ 0.04 g",
+            "note": "Light"
+          },
+          {
+            "label": "Level 2",
+            "intensity": 3,
+            "value": "≈ 0.08 g",
+            "note": "Medium"
+          },
+          {
+            "label": "Level 3",
+            "intensity": 5,
+            "value": "≈ 0.12 g",
+            "note": "Full"
+          }
+        ],
+        "footnote": "Optional footnote."
+      },
+      {
+        "type": "callouts",
+        "title": "Structure",
+        "subtitle": "x / y are fractions of the side render (0 = left/top, 1 = right/bottom).",
+        "image": "side",
+        "callouts": [
+          {
+            "label": "Top part",
+            "x": 0.45,
+            "y": 0.06,
+            "side": "up"
+          },
+          {
+            "label": "Left end",
+            "x": 0.03,
+            "y": 0.3,
+            "side": "left"
+          },
+          {
+            "label": "Right end",
+            "x": 0.96,
+            "y": 0.24,
+            "side": "right"
+          },
+          {
+            "label": "Bottom grip",
+            "x": 0.64,
+            "y": 0.86,
+            "side": "down"
+          }
+        ],
+        "stats": [
+          {
+            "value": "10 cm",
+            "label": "range"
+          },
+          {
+            "value": "120 g",
+            "label": "weight"
+          }
+        ],
+        "summary": "One sentence summary."
+      },
+      {
+        "type": "chips",
+        "title": "Compatibility",
+        "subtitle": "Grouped tags; tone positive = green ✔, negative = red ✖, neutral = brand colour.",
+        "groups": [
+          {
+            "heading": "Works with",
+            "tone": "positive",
+            "items": [
+              "Item A",
+              "Item B",
+              "Item C"
+            ]
+          },
+          {
+            "heading": "Not for",
+            "tone": "negative",
+            "items": [
+              "Item X",
+              "Item Y"
+            ]
+          }
+        ],
+        "notice": {
+          "title": "Safety First",
+          "text": "Optional notice box."
+        }
+      },
+      {
+        "type": "scenes",
+        "title": "Use It Anywhere",
+        "subtitle": "Grid of photos.scenes with their captions."
+      },
+      {
+        "type": "spec_table",
+        "title": "Specifications",
+        "rows": [
+          {
+            "name": "Brand / Model",
+            "value": "YOURBRAND / M1"
+          },
+          {
+            "name": "Material",
+            "value": "ABS"
+          },
+          {
+            "name": "Dimensions",
+            "value": "100 × 50 × 30 mm"
+          },
+          {
+            "name": "Weight",
+            "value": "120 g"
+          }
+        ]
+      },
+      {
+        "type": "oem_odm",
+        "title": "OEM / ODM SERVICE",
+        "subtitle": "Your brand, your colours, your packaging.",
+        "colors": [
+          {
+            "name": "Orange (standard)"
+          },
+          {
+            "name": "Green",
+            "hue": 120,
+            "saturation": 0.9,
+            "brightness": 0.95
+          },
+          {
+            "name": "Blue",
+            "hue": 210,
+            "saturation": 0.9,
+            "brightness": 0.95
+          },
+          {
+            "name": "Black",
+            "saturation": 0.0,
+            "brightness": 0.25
+          }
+        ],
+        "logo_label": "YOUR LOGO HERE",
+        "services": [
+          {
+            "title": "Logo printing",
+            "text": "Silk-screen or pad printing."
+          },
+          {
+            "title": "Retail packaging",
+            "text": "Colour box or blister card with your artwork."
+          }
+        ],
+        "process": [
+          "Share requirements",
+          "Sample approval",
+          "Mass production",
+          "Shipping"
+        ],
+        "note": "Samples available  ·  Contact us for OEM/ODM MOQ and lead time."
+      },
+      {
+        "type": "trust",
+        "title": "Quality You Can Trust",
+        "badges": [
+          {
+            "value": "1-YEAR",
+            "label": "warranty"
+          },
+          {
+            "value": "ABS BODY",
+            "label": "durable"
+          }
+        ],
+        "footnote": "Optional footnote (e.g. warranty terms).",
+        "box_title": "What's in the Box",
+        "box_items": [
+          "1 × Product",
+          "1 × Quick-start guide"
+        ],
+        "notice": {
+          "title": "Safety Notice",
+          "text": "Optional safety text."
+        }
+      }
+    ]
+  }
 }
