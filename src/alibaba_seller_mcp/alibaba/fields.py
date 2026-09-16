@@ -25,7 +25,7 @@ from .photobank import PhotoBank
 from .values import (
     MAX_ATTR_NAME_LEN, MAX_ATTR_VALUE_LEN, MAX_COMPANY_DESC_LEN, MAX_FAQ_ANSWER_LEN,
     MAX_FAQ_COUNT, MAX_FAQ_QUESTION_LEN, MAX_HIGHLIGHTS_LEN, _build_cat_props,
-    _build_sale_props, _image_value, build_ladder_period, clip_body, clip_text,
+    _build_sale_props, _image_value, build_ladder_period, build_skus, clip_body, clip_text,
 )
 
 
@@ -105,6 +105,14 @@ class FieldAssembler:
             sale_props = _build_sale_props(sale, manifest.data["sale_props"])
             if sale_props:
                 fields["saleProp"] = sale_props
+
+        # per-SKU seller code (skuOuterId "Commodity code") = "<model>-<value>",
+        # one sku row per sale-property value, linked to it via props.
+        if "sku" not in fields and manifest.data.get("sale_props") and manifest.data.get("sku_code_prefix"):
+            sale = next((f for f in (schema_fields or []) if f.id == "saleProp"), None)
+            skus = build_skus(sale, manifest.data["sale_props"], str(manifest.data["sku_code_prefix"]))
+            if skus:
+                fields["sku"] = skus
 
         # shipping ladder -> ladderPeriod ("up to N units → M days"), required by the console
         if "ladderPeriod" not in fields and manifest.data.get("lead_time"):

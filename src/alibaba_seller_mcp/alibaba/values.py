@@ -162,6 +162,53 @@ def _build_sale_props(sale_field: Any, sale_props: dict[str, Any]) -> dict[str, 
     return out or None
 
 
+def build_skus(sale_field: Any, sale_props: dict[str, Any], code_prefix: str) -> list[dict] | None:
+    """Build the ``sku`` multiComplex — one row per sale-property value.
+
+    Each row carries the seller ``skuOuterId`` (the "Commodity code", built as
+    ``f"{code_prefix}-{value}"``) and the ``props`` that link it to the sale
+    property value. ``props`` mirrors what the platform stores:
+    ``<value propId propName propValueId propValueName>{propId}:{propValueId}</value>``
+    where ``propId`` is the sale-property field id without its ``p-`` prefix and
+    ``propValueId`` is the option code (a unique negative id for a custom value,
+    matching :func:`_build_sale_props`). One sale property (e.g. Color) for now.
+    """
+    if not sale_field or not sale_props or not code_prefix:
+        return None
+    provided = {str(k).strip().lower(): v for k, v in sale_props.items()}
+    for sf in sale_field.children:
+        val = next((provided[k] for k in _cat_prop_keys(sf) if k in provided), None)
+        if val is None:
+            continue
+        items = val if isinstance(val, (list, tuple)) else [val]
+        options = {str(o.get("displayName", "")).strip().lower(): str(o.get("value")) for o in sf.options}
+        taken = {str(o.get("value")) for o in sf.options}
+        prop_name = sf.id                                   # e.g. "p-191288010"
+        prop_id = prop_name[2:] if prop_name.startswith("p-") else prop_name
+        rows: list[dict] = []
+        custom = 0
+        for item in items:
+            text = str(item).strip()
+            value_id = options.get(text.lower())
+            if value_id is not None:
+                display = next(str(o["displayName"]) for o in sf.options if str(o.get("value")) == value_id)
+            else:
+                custom -= 1
+                while str(custom) in taken:
+                    custom -= 1
+                value_id, display = str(custom), text
+            rows.append({
+                "skuOuterId": clip_text(f"{code_prefix}-{display}", 64),
+                "props": [{
+                    "__value__": f"{prop_id}:{value_id}",
+                    "__attrs__": {"propId": prop_id, "propName": prop_name,
+                                  "propValueId": value_id, "propValueName": display},
+                }],
+            })
+        return rows or None
+    return None
+
+
 def missing_required_sale_props(schema_fields: list, filled: dict[str, Any]) -> list[str]:
     """Names of required saleProp children (e.g. Color) not present in ``filled``."""
     sale = next((f for f in schema_fields if f.id == "saleProp"), None)

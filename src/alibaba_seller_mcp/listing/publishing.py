@@ -54,8 +54,8 @@ _KNOWN_BRIEF_KEYS = frozenset({
     "ai", "base_dir", "brand", "brand_name", "brief", "category_id", "company_intro",
     "content", "description", "detail_spec", "facts", "features", "group", "how_to_use",
     "images", "instructions", "keywords", "language", "lead_time", "model", "oem_odm",
-    "parts", "photos", "price", "product_name", "sale_props", "sale_type", "theme",
-    "version",
+    "parts", "photos", "price", "product_name", "sale_props", "sale_type",
+    "sku_code_prefix", "theme", "version",
 })
 
 
@@ -322,6 +322,11 @@ class PublishFromBrief:
         }
         if content:
             data["content"] = content
+        # per-SKU seller code "Commodity code" (skuOuterId) = "<prefix>-<value>",
+        # prefix defaults to the model; only emitted when the product has sale_props.
+        sku_prefix = brief.get("sku_code_prefix") or brief.get("model")
+        if sku_prefix:
+            data["sku_code_prefix"] = sku_prefix
         group, gwarn = _product_group(brief.get("group"))
         warnings.extend(gwarn)
         if group:
