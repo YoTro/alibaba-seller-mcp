@@ -14,7 +14,6 @@ an MCP client (Claude Desktop, Claude Code, or any MCP host) tools to:
 - **Publish and update products** from a lower-level manifest when you want full control.
 - **Read images / videos / prices from local files** — validated locally, then
   uploaded to the photo bank to obtain hosted URLs.
-- **Generate social-media content with Claude** (Anthropic), tailored per platform.
 - **Track AI token usage** with per-model USD cost estimates, and cap it per session.
 
 ## Project structure
@@ -56,8 +55,7 @@ alibaba-seller-mcp/
 │   │   ├── prompts.py           # every built-in prompt (edit wording rules here)
 │   │   ├── base.py              # shared client / usage recording / JSON extraction
 │   │   ├── product_detail.py    # title, highlights, modules, FAQs + attribute selection
-│   │   ├── detail_spec.py       # page spec for the code-rendered detail images
-│   │   └── social.py            # social-media copy
+│   │   └── detail_spec.py       # page spec for the code-rendered detail images
 │   │   ── engine ────────────────────────────────────────────────
 │   ├── rendering/               # deterministic renderer (no AI, no brief knowledge)
 │   │   ├── spec.py              # page-template DTOs (the AI ↔ renderer contract)
@@ -86,8 +84,8 @@ alibaba-seller-mcp/
 
 - Python **3.11+**
 - An Alibaba.com open-platform app (App Key / App Secret) with the product APIs granted
-- An Anthropic API key — used for the brief's copy, the detail-page spec and social
-  content. Not needed for a brief with `"ai": false`.
+- An Anthropic API key — used for the brief's copy and the detail-page spec.
+  Not needed for a brief with `"ai": false`.
 
 ## Install
 
@@ -112,8 +110,8 @@ Key variables (see `.env.example` for the full list):
 | `ALIBABA_APP_KEY` / `ALIBABA_APP_SECRET` | App credentials from the console |
 | `ALIBABA_REDIRECT_URI` | OAuth callback URL registered in the console |
 | `ALIBABA_METHOD_SCHEMA_GET` / `_ADD` / `_ADD_DRAFT` / `_UPDATE` / `ALIBABA_METHOD_PHOTO_UPLOAD` | Granted API method names |
-| `ANTHROPIC_API_KEY` | Claude access (brief copy, detail spec, social content) |
-| `SOCIAL_MODEL` | Claude model (default `claude-opus-5`) |
+| `ANTHROPIC_API_KEY` | Claude access (brief copy, detail spec) |
+| `SOCIAL_MODEL` | Claude model for AI generation (default `claude-opus-5`) |
 | `ALIBABA_MCP_ALLOWED_DIRS` | Filesystem roots the server may read/write (default: cwd) |
 | `ALIBABA_MCP_AI_TOKEN_BUDGET` | Soft cap on Claude tokens per session (unset = no limit) |
 
@@ -174,7 +172,6 @@ Claude Desktop (`claude_desktop_config.json`):
 | `video_relate_product` | Set a product's main/detail video (single slot — replaces an existing one; numeric ids auto-encrypted) |
 | `video_list_related` | List product ids related to a video |
 | `product_group_get` | Get a product group / list top-level groups (`group_id=-1`) |
-| `generate_social_content` | Generate per-platform social posts with Claude |
 | `usage_stats` | Report AI token usage + estimated USD cost |
 
 Resource: `usage://summary` — all-time usage grouped by model.
@@ -221,8 +218,7 @@ alibaba-seller-auth --bind 127.0.0.1:8721   # or set ALIBABA_LOCAL_BIND=127.0.0.
    media rendered, images uploaded, draft created.
 4. `product_render_draft(product_id=…, category_id=…)` to verify what was stored.
    Each publish creates a NEW draft — delete superseded ones in the console.
-5. `generate_social_content("My Product", ["linkedin","instagram"])`.
-6. `usage_stats(group_by="day")` to see token spend.
+5. `usage_stats(group_by="day")` to see token spend.
 
 ## Publishing from a brief (recommended)
 

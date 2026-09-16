@@ -1,7 +1,7 @@
 """Shared plumbing for the Claude generators: client construction, one call
 helper that records token usage, and tolerant JSON extraction.
 
-Each generator (product detail, detail-image spec, social posts) subclasses
+Each generator (product detail, detail-image spec) subclasses
 :class:`ClaudeGenerator` and owns exactly one concern; prompts live in
 :mod:`prompts`.
 """

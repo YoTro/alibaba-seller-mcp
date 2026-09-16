@@ -118,24 +118,3 @@ DETAIL_SPEC_SYSTEM = (
     '{"type":"oem_odm","title","subtitle","colors":[{"name","hue":int|null,"saturation":float,"brightness":float}<=6],"logo_label","services":[{"title","text"}<=5],"process":[str<=5],"note"}\n'
     '{"type":"trust","title","badges":[{"value","label"} x1-4],"footnote","box_title","box_items":[str<=6],"notice":{"title","text"}|null}'
 )
-
-# ── social-media posts ────────────────────────────────────────────────────────
-SOCIAL_SYSTEM = (
-    "You are an expert B2B e-commerce social-media copywriter for sellers on "
-    "Alibaba.com Global B2B. You write concise, platform-appropriate, "
-    "conversion-oriented posts that respect each platform's norms and length "
-    "limits, and you never invent product facts that were not provided.\n\n"
-    "Return ONLY a single JSON object, no prose and no markdown fences, shaped as:\n"
-    '{"posts": [{"platform": str, "variant": int, "text": str, '
-    '"hashtags": [str], "call_to_action": str}]}'
-)
-
-SOCIAL_LENGTH_HINTS = {
-    "twitter": "<= 280 characters, punchy, 1-3 hashtags",
-    "x": "<= 280 characters, punchy, 1-3 hashtags",
-    "instagram": "engaging caption, up to ~150 words, 5-12 relevant hashtags",
-    "facebook": "friendly, 50-120 words, minimal hashtags",
-    "linkedin": "professional B2B tone, 80-150 words, 3-5 hashtags",
-    "tiktok": "short hook-driven caption, trend-aware, 3-6 hashtags",
-    "pinterest": "descriptive keyword-rich caption, 2-5 hashtags",
-}

@@ -20,7 +20,7 @@ from typing import Any, Callable
 from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
-from .ai import DetailSpecGenerator, ProductDetailGenerator, SocialContentGenerator
+from .ai import DetailSpecGenerator, ProductDetailGenerator
 from .alibaba.auth import SellerAuth
 from .alibaba.categories import CategoryService
 from .alibaba.client import AlibabaClient
@@ -52,7 +52,6 @@ from .models import (
     RenderDraftResult,
     Result,
     SchemaResult,
-    SocialContentResult,
     UploadImageResult,
     Usage,
     UsageStatsResult,
@@ -104,7 +103,6 @@ class Context:
         self._groups: GroupService | None = None
         self._categories: CategoryService | None = None
         self._tracker: UsageTracker | None = None
-        self._social: SocialContentGenerator | None = None
         self._detail: ProductDetailGenerator | None = None
         self._detail_spec: DetailSpecGenerator | None = None
         self._publishing: PublishFromBrief | None = None
@@ -156,12 +154,6 @@ class Context:
         if self._tracker is None:
             self._tracker = UsageTracker(UsageStore(self.config.usage_log_path))
         return self._tracker
-
-    @property
-    def social(self) -> SocialContentGenerator:
-        if self._social is None:
-            self._social = SocialContentGenerator(self.config, self.tracker)
-        return self._social
 
     @property
     def detail(self) -> ProductDetailGenerator:
@@ -696,41 +688,6 @@ def generate_product_detail(
     )
 
 
-# ── AI social content ────────────────────────────────────────────────────────
-@mcp.tool(annotations=_anno("Generate social content (AI)", idempotent=False, open_world=True))
-@tool_errors(SocialContentResult)
-def generate_social_content(
-    product_name: str,
-    platforms: list[str],
-    features: list[str] | None = None,
-    keywords: list[str] | None = None,
-    tone: str = "professional",
-    language: str = "English",
-    variants: int = 1,
-    extra_instructions: str = "",
-) -> SocialContentResult:
-    """Generate platform-tailored social posts for a product with Claude.
-
-    Token usage is recorded automatically (see `usage_stats`). `platforms` e.g.
-    ["linkedin", "instagram", "x", "facebook", "tiktok", "pinterest"].
-    """
-    result = ctx.social.generate(
-        product_name=product_name,
-        platforms=platforms,
-        features=features,
-        keywords=keywords,
-        tone=tone,
-        language=language,
-        variants=variants,
-        extra_instructions=extra_instructions,
-    )
-    usage = result.get("usage")
-    return SocialContentResult(
-        model=result.get("model"),
-        posts=result.get("posts"),
-        raw_text=result.get("raw_text"),
-        usage=Usage(**usage) if usage else None,
-    )
 
 
 # ── token usage stats ────────────────────────────────────────────────────────

@@ -225,13 +225,6 @@ class ProductDetailResult(Result):
     saved_to: str | None = None
 
 
-class SocialContentResult(Result):
-    model: str | None = None
-    posts: list[dict[str, Any]] | None = None
-    raw_text: str | None = None
-    usage: Usage | None = None
-
-
 # ── usage stats ────────────────────────────────────────────────────────────────
 class UsageStatsResult(Result):
     call_count: int | None = None

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "alibaba-seller-mcp"
 version = "0.2.0"
-description = "MCP server for the Alibaba.com Global B2B open platform: seller auth, product upload/edit, local media & price ingestion, AI social content, and token usage stats."
+description = "MCP server for the Alibaba.com Global B2B open platform: seller auth, product upload/edit, local media & price ingestion, AI listing content, and token usage stats."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "yotro" }]

@@ -59,7 +59,6 @@ PUBLISHED_TOOLS = frozenset({
     "category_get_attributes",
     "detail_images_render",
     "generate_product_detail",
-    "generate_social_content",
     "listing_media_prepare",
     "product_get_schema",
     "product_group_get",
