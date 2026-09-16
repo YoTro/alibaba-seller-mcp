@@ -25,7 +25,8 @@ from .photobank import PhotoBank
 from .values import (
     MAX_ATTR_NAME_LEN, MAX_ATTR_VALUE_LEN, MAX_COMPANY_DESC_LEN, MAX_FAQ_ANSWER_LEN,
     MAX_FAQ_COUNT, MAX_FAQ_QUESTION_LEN, MAX_HIGHLIGHTS_LEN, _build_cat_props,
-    _build_sale_props, _image_value, build_ladder_period, build_skus, clip_body, clip_text,
+    _build_sale_props, _image_value, ascii_attr, build_ladder_period, build_skus,
+    clip_body, clip_text, deaccent,
 )
 
 
@@ -58,16 +59,18 @@ class FieldAssembler:
             if content.get("title") and "productTitle" not in fields:
                 fields["productTitle"] = content["title"]
             if content.get("highlights") and "textDesc" not in fields:
-                fields["textDesc"] = clip_body(content["highlights"], MAX_HIGHLIGHTS_LEN)
+                fields["textDesc"] = clip_body(deaccent(content["highlights"]), MAX_HIGHLIGHTS_LEN)
             attrs = content.get("attributes") or []
             if attrs and "customMoreProperty" not in fields:
                 cmp: dict[str, Any] = {}
                 for a in attrs[:30]:
-                    name, value = a.get("name"), a.get("value")
+                    # customMoreProperty allows only digits, English letters and spaces
+                    name = ascii_attr(a.get("name"))
+                    value = ascii_attr(a.get("value"))
                     if name and value:
                         cmp[f"customMoreProperty_{len(cmp)}"] = {
-                            "propName": clip_text(str(name), MAX_ATTR_NAME_LEN),
-                            "valueName": clip_text(str(value), MAX_ATTR_VALUE_LEN),
+                            "propName": clip_text(name, MAX_ATTR_NAME_LEN),
+                            "valueName": clip_text(value, MAX_ATTR_VALUE_LEN),
                         }
                 if cmp:
                     fields["customMoreProperty"] = cmp
@@ -77,14 +80,14 @@ class FieldAssembler:
                 )
             # Company Introduction -> companyDesc
             if content.get("company_intro") and "companyDesc" not in fields:
-                fields["companyDesc"] = clip_body(content["company_intro"], MAX_COMPANY_DESC_LEN)
+                fields["companyDesc"] = clip_body(deaccent(content["company_intro"]), MAX_COMPANY_DESC_LEN)
             # FAQs -> companyFaqDesc (multiComplex: question + answers)
             faqs = content.get("faqs") or []
             if faqs and "companyFaqDesc" not in fields:
                 fields["companyFaqDesc"] = [
                     {
-                        "question": clip_text(f.get("question", ""), MAX_FAQ_QUESTION_LEN),
-                        "answers": clip_body(f.get("answer") or f.get("answers", ""), MAX_FAQ_ANSWER_LEN),
+                        "question": clip_text(deaccent(f.get("question", "")), MAX_FAQ_QUESTION_LEN),
+                        "answers": clip_body(deaccent(f.get("answer") or f.get("answers", "")), MAX_FAQ_ANSWER_LEN),
                     }
                     for f in faqs[:MAX_FAQ_COUNT]
                     if f.get("question")

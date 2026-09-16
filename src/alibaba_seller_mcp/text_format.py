@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import string
+import unicodedata
 
 # Publishing title rules: length <= 128 chars (incl. spaces); avoid special
 # characters (@ ! ！ ? ？ $ ^ { } ~ 、 etc.); the only punctuation kept is - / , & .
@@ -84,7 +85,10 @@ def clean_title(title: str) -> str:
     """Strip disallowed special characters and collapse whitespace.
 
     Disallowed marks are replaced with a space (so tokens don't fuse), then runs
-    of whitespace are collapsed. Only ``- / , & .`` punctuation is kept."""
+    of whitespace are collapsed. Only ``- / , & .`` punctuation is kept. Accented
+    Latin letters are transliterated to ASCII first (é→e, ç→c) so the title is plain
+    ASCII; non-Latin characters (e.g. CJK) are dropped by the disallowed filter."""
+    title = "".join(c for c in unicodedata.normalize("NFKD", title) if not unicodedata.combining(c))
     cleaned = _DISALLOWED_TITLE_RE.sub(" ", title)
     return re.sub(r"\s+", " ", cleaned).strip()
 

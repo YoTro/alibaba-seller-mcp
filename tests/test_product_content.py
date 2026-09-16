@@ -80,7 +80,7 @@ def test_content_maps_to_fields(tmp_path):
 def test_custom_attribute_values_clipped_to_platform_limits(tmp_path):
     from alibaba_seller_mcp.alibaba.values import MAX_ATTR_NAME_LEN, MAX_ATTR_VALUE_LEN, clip_text
 
-    long_value = "Fires ordinary dry table salt at about 0.04 g per shot with kinetic energy above 0.08 J at 20-30 cm"
+    long_value = "Fires ordinary dry table salt at about 004 g per shot with kinetic energy above 008 J at close range"
     content = {"title": "T", "attributes": [{"name": "A very long attribute name that runs on", "value": long_value},
                                              {"name": "Short", "value": "ok"}]}
     manifest = ProductManifest({"category_id": 1, "content": content}, tmp_path)
@@ -93,6 +93,22 @@ def test_custom_attribute_values_clipped_to_platform_limits(tmp_path):
     assert fields["customMoreProperty"]["customMoreProperty_1"] == {"propName": "Short", "valueName": "ok"}
     assert clip_text("x" * 100, 70) == "x" * 70                     # no space → hard cut
     assert clip_text("  spaced   out  ", 70) == "spaced out"
+
+
+def test_custom_attributes_restricted_to_digits_letters_spaces(tmp_path):
+    """customMoreProperty name/value keep only digits, English letters and spaces;
+    an attribute with no usable name or value after cleaning is dropped."""
+    content = {"title": "T", "attributes": [
+        {"name": "UVA Wavelength", "value": "365nm + 395nm"},   # '+' not allowed → space
+        {"name": "Coverage (sq m)", "value": "15-25, up to 90%"},  # . , / ( ) - : % kept
+        {"name": "Area", "value": "20 ㎡"},               # ㎡ → "sq m"
+        {"name": "材质", "value": "ABS"},               # non-English name → dropped
+        {"name": "Sensor", "value": "毫米波"},      # non-English value → dropped
+    ]}
+    manifest = ProductManifest({"category_id": 1, "content": content}, tmp_path)
+    fields = _assembler(tmp_path).assemble(manifest, "tok")
+    pairs = {v["propName"]: v["valueName"] for v in fields["customMoreProperty"].values()}
+    assert pairs == {"UVA Wavelength": "365nm 395nm", "Coverage (sq m)": "15-25, up to 90%", "Area": "20 sq m"}
 
 
 def test_highlights_intro_and_faqs_clipped_to_platform_limits(tmp_path):

@@ -8,7 +8,18 @@ exhaustively: every rule the platform enforces lives here as a plain function.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any
+
+# Custom-attribute (customMoreProperty) names and values may contain only digits,
+# English letters, spaces and the punctuation  . , / ( ) - : %  — the platform
+# rejects anything else (other symbols, units like ㎡/°, non-English text).
+_ATTR_DISALLOWED = re.compile(r"[^0-9A-Za-z .,/()%:-]+")
+
+# Expand unit glyphs to an ASCII form first, so they keep their meaning instead of
+# being stripped ("20 ㎡" → "20 sq m", "m²" → "m2").
+_ATTR_UNIT_MAP = {"㎡": " sq m", "㎥": " cu m", "²": "2", "³": "3"}
 
 # Custom parameters (customMoreProperty): the platform rejects attribute values longer
 # than 70 characters; names are kept short as well.
@@ -31,6 +42,33 @@ def clip_text(text: str, limit: int) -> str:
     cut = text[:limit]
     space = cut.rfind(" ")
     return (cut[:space] if space > limit // 2 else cut).rstrip(" ,;:-")
+
+
+def deaccent(text: str) -> str:
+    """Transliterate accented Latin letters to ASCII (é→e, ç→c, ü→u), leaving all
+    other characters intact. Non-Latin scripts (e.g. CJK) pass through unchanged.
+    Used for body fields (highlights, company intro, FAQs) that must be plain ASCII."""
+    if not text:
+        return ""
+    return "".join(c for c in unicodedata.normalize("NFKD", str(text)) if not unicodedata.combining(c))
+
+
+def ascii_attr(text: str) -> str:
+    """Custom-attribute name/value cleaned to the platform rule: keep only digits,
+    English letters, spaces and the punctuation  . , / ( ) - : % . Unit glyphs are
+    expanded to ASCII first (``㎡`` → ``sq m``, ``m²`` → ``m2``); any other character
+    (``°``, ``+``, non-English text) becomes a space so words stay separated
+    (``365nm+395nm`` → ``365nm 395nm``), then spaces collapse. May return an empty
+    string — the caller drops an attribute with no usable name/value left."""
+    if not text:
+        return ""
+    s = str(text)
+    for glyph, ascii_ in _ATTR_UNIT_MAP.items():
+        if glyph in s:
+            s = s.replace(glyph, ascii_)
+    # transliterate accents (é→e) so words stay intact instead of split by a space
+    s = deaccent(s)
+    return " ".join(_ATTR_DISALLOWED.sub(" ", s).split())
 
 
 def clip_body(text: str, limit: int) -> str:
