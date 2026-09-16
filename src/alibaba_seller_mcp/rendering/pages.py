@@ -6,7 +6,6 @@ Each function takes the spec, one page model and the loaded assets, and returns 
 from __future__ import annotations
 
 import math
-import random
 from typing import Callable
 
 from PIL import Image
@@ -15,8 +14,8 @@ from .image_ops import DARK_TEXT, GRAY, LIGHT, LINE, TINT, WHITE, accent_band, f
 from .painter import Painter
 from .render_assets import LoadedAssets
 from .spec import (
-    CalloutsPage, ChipsPage, DetailSpec, FeaturesPage, HeroPage, LevelsPage, OemOdmPage,
-    ScenesPage, SpecTablePage, StepsPage, TrustPage,
+    CalloutsPage, ChipsPage, DetailSpec, FeaturesPage, HeroPage, LevelsPage, ModesPage,
+    OemOdmPage, ScenesPage, SpecTablePage, StepsPage, TrustPage,
 )
 
 
@@ -152,18 +151,21 @@ def r_levels(spec: DetailSpec, page: LevelsPage, a: LoadedAssets) -> Painter:
     y = p.header(60, page.title, page.subtitle)
     n = len(page.levels)
     cw = (W - 160 - 20 * (n - 1)) // n
-    rng = random.Random(7)
+    bars = max([lv.intensity for lv in page.levels] + [3])
     for i, lv in enumerate(page.levels):
         x0 = 80 + i * (cw + 20)
         p.card((x0, y, x0 + cw, y + 560))
         p.block((x0 + cw // 2, y + 24), lv.label, p.f(36, "black"), p.primary,
                 max_w=cw - 30, center=True, spacing=4)
-        cx, cy = x0 + cw // 2, y + 250
-        p.d.ellipse((cx - 120, cy - 120, cx + 120, cy + 120), fill=p.dark)
-        for _ in range(8 * lv.intensity):
-            ang, r = rng.random() * 6.283, rng.random() ** 0.6 * 100
-            px, py = cx + math.cos(ang) * r, cy + math.sin(ang) * r
-            p.d.ellipse((px - 6, py - 6, px + 6, py + 6), fill=WHITE)
+        # clean level meter: rising rounded bars, filled up to this mode's intensity
+        cx = x0 + cw // 2
+        aw, ah, base = 220.0, 190.0, y + 360
+        bw = aw / (2 * bars - 1)
+        for k in range(bars):
+            bh = ah * (k + 1) / bars
+            bx = cx - aw / 2 + k * 2 * bw
+            col = p.primary if k < lv.intensity else LIGHT
+            p.d.rounded_rectangle((bx, base - bh, bx + bw, base), radius=bw / 3, fill=col)
         p.block((cx, y + 400), lv.value, p.f(28, "bold"), p.dark, max_w=cw - 30, center=True, spacing=4)
         if lv.note:
             p.block((cx, y + 450), lv.note, p.f(21), GRAY, max_w=cw - 40, center=True)
@@ -179,53 +181,139 @@ def r_levels(spec: DetailSpec, page: LevelsPage, a: LoadedAssets) -> Painter:
     return p
 
 
+def r_modes(spec: DetailSpec, page: ModesPage, a: LoadedAssets) -> Painter:
+    """Named operating modes as comparison cards. Category-agnostic: draws only the
+    label, the concrete setting (``value`` pill) and ``note`` — no magnitude graphic,
+    so nothing false is implied for products whose modes are not a ranking."""
+    m = Painter.ruler(spec)
+    W = spec.width
+    n = len(page.modes)
+    cw = (W - 160 - 20 * (n - 1)) // n
+    label_f, value_f, note_f = m.f(34, "black"), m.f(30, "bold"), m.f(21)
+    label_h = max((m.block_h(md.label, label_f, cw - 30, 6) for md in page.modes), default=0)
+    note_h = max((m.block_h(md.note, note_f, cw - 40, 6) for md in page.modes if md.note), default=0)
+    has_pill = any(md.value for md in page.modes)
+    card_h = 40 + label_h + (28 + 60 if has_pill else 10) + (28 + note_h if note_h else 0) + 40
+    H = (60 + m.header_h(page.title, page.subtitle) + card_h + 30
+         + (60 if page.footnote else 0) + 60)
+    p = Painter(spec, H)
+    y = p.header(60, page.title, page.subtitle)
+    for i, md in enumerate(page.modes):
+        x0 = 80 + i * (cw + 20)
+        p.card((x0, y, x0 + cw, y + card_h))
+        cx = x0 + cw // 2
+        yy = p.block((cx, y + 40), md.label, label_f, p.primary, max_w=cw - 30, center=True, spacing=6)
+        if md.value:
+            pill_w = min(cw - 48, m.tw(md.value, value_f) + 56)
+            px0 = cx - pill_w // 2
+            py0 = yy + 24
+            p.d.rounded_rectangle((px0, py0, px0 + pill_w, py0 + 60), radius=30, fill=TINT)
+            p.block((cx, py0 + 15), md.value, value_f, p.dark, max_w=pill_w - 24, center=True)
+            yy = py0 + 60
+        if md.note:
+            p.block((cx, yy + 28), md.note, note_f, GRAY, max_w=cw - 40, center=True, spacing=6)
+        if i < n - 1:
+            ax, ay = x0 + cw + 10, y + card_h // 2
+            p.d.polygon([(ax - 6, ay - 10), (ax + 14, ay), (ax - 6, ay + 10)], fill=p.primary)
+    y += card_h + 30
+    if page.footnote:
+        p.block((W // 2, y), page.footnote, p.f(24, "bold"), DARK_TEXT, max_w=W - 200, center=True)
+    p.footer()
+    return p
+
+
 def r_callouts(spec: DetailSpec, page: CalloutsPage, a: LoadedAssets) -> Painter:
     m = Painter.ruler(spec)
-    stat_w = (spec.width - 160) // max(1, len(page.stats)) - 30
+    W = spec.width
+    f = m.f(24, "bold")
+    LH = 42                                   # one label row (line + gap)
+    cos = page.callouts
+
+    # stats / summary sizing (unchanged)
+    stat_w = (W - 160) // max(1, len(page.stats)) - 30
     stat_val_f = m.f(34, "black")
     stat_val_h = max((m.block_h(s.value, stat_val_f, stat_w, 6) for s in page.stats), default=0)
     stat_h = max((22 + stat_val_h + 16 + m.block_h(s.label, m.f(19), stat_w, 2) + 18
                   for s in page.stats), default=0) if page.stats else 0
-    summary_h = m.block_h(page.summary, m.f(23), spec.width - 200, 8)
-    H = 1100 + (stat_h + 40 if page.stats else 0) + (summary_h + 40 if page.summary else 0)
-    p = Painter(spec, H)
-    W = p.W
-    y = p.header(60, page.title, page.subtitle)
-    img = fit(a.side if page.image == "side" else a.hero, W - 380, 560)
-    px, py = (W - img.size[0]) // 2, y + 120
-    p.paste(img, (px, py))
+    summary_h = m.block_h(page.summary, m.f(23), W - 200, 8)
+
+    # image geometry — horizontal placement is independent of the label bands, so
+    # fit it first (wide side gutters leave room for left/right labels).
+    img = fit(a.side if page.image == "side" else a.hero, W - 460, 560)
     sw, sh = img.size
-    f = p.f(24, "bold")
-    # Labels sharing a side are staggered (alternating rows, ordered by x) so two
-    # callouts near each other never print on top of one another.
-    rank: dict[int, int] = {}
-    for side in ("up", "down", "left", "right"):
-        same = sorted((i for i, c in enumerate(page.callouts) if c.side == side),
-                      key=lambda i: page.callouts[i].x if side in ("up", "down") else page.callouts[i].y)
-        for n, i in enumerate(same):
-            rank[i] = n % 2
-    for i, c in enumerate(page.callouts):
+    px = (W - sw) // 2
+
+    by = {s: [i for i, c in enumerate(cos) if c.side == s] for s in ("up", "down", "left", "right")}
+
+    def label_x(i: int) -> float:
+        w = m.tw(cos[i].label, f)
+        return min(max(px + sw * cos[i].x, 80 + w / 2), W - 80 - w / 2)
+
+    def rows_for(idxs: list[int]) -> tuple[dict[int, int], int]:
+        """Assign each up/down label a row so no two overlap horizontally."""
+        row: dict[int, int] = {}
+        lanes: list[list[tuple[float, float]]] = []
+        for i in sorted(idxs, key=label_x):
+            w = m.tw(cos[i].label, f)
+            cx = label_x(i)
+            span = (cx - w / 2, cx + w / 2)
+            r = 0
+            while r < len(lanes) and any(not (span[1] < L - 18 or span[0] > R + 18) for L, R in lanes[r]):
+                r += 1
+            if r == len(lanes):
+                lanes.append([])
+            lanes[r].append(span)
+            row[i] = r
+        return row, len(lanes)
+
+    up_row, up_rows = rows_for(by["up"])
+    down_row, down_rows = rows_for(by["down"])
+    up_band = (40 + up_rows * LH) if up_rows else 90
+    py = 60 + m.header_h(page.title, page.subtitle) + up_band
+
+    # left/right: stack labels down the margin so none overlap vertically
+    def slots(idxs: list[int]) -> dict[int, float]:
+        out: dict[int, float] = {}
+        cur = None
+        for i in sorted(idxs, key=lambda i: py + sh * cos[i].y):
+            ly = py + sh * cos[i].y
+            if cur is not None and ly < cur + LH:
+                ly = cur + LH
+            cur = out[i] = ly
+        return out
+
+    side_ly = {**slots(by["left"]), **slots(by["right"])}
+    side_bottom = max((v + 20 for v in side_ly.values()), default=0)
+
+    down_band = (30 + down_rows * LH + 16) if down_rows else 0
+    stats_y = max(py + sh + down_band + 30, side_bottom + 20)
+    H = stats_y + (stat_h + 40 if page.stats else 0) + (summary_h + 40 if page.summary else 0) + 70
+
+    p = Painter(spec, H)
+    p.header(60, page.title, page.subtitle)
+    p.paste(img, (px, py))
+    for i, c in enumerate(cos):
         x, y0 = px + int(sw * c.x), py + int(sh * c.y)
-        step = rank[i] * 46
         p.d.ellipse((x - 9, y0 - 9, x + 9, y0 + 9), fill=p.primary, outline=WHITE, width=3)
         if c.side == "up":
-            lx, ly = x, py - 40 - step
-            anchor, tx, ty = "ma", lx, ly - 34
+            ex, ey = int(label_x(i)), py - 40 - up_row[i] * LH
+            p.d.line((x, y0, ex, ey), fill=p.primary, width=3)
+            p.text((ex, ey - 34), c.label, f, p.dark, anchor="ma")
         elif c.side == "down":
-            lx, ly = x, py + sh + 30 + step
-            anchor, tx, ty = "ma", lx, ly + 8
+            ex, ey = int(label_x(i)), py + sh + 30 + down_row[i] * LH
+            p.d.line((x, y0, ex, ey), fill=p.primary, width=3)
+            p.text((ex, ey + 8), c.label, f, p.dark, anchor="ma")
         elif c.side == "left":
-            # label at the canvas margin, above the point's height (works for narrow renders too)
-            ly = y0 - 60 - step
-            tx, ty, anchor = 80, ly - 30, "la"
-            lx = min(80 + int(p.tw(c.label, f)) + 10, x - 20)
+            ly = side_ly[i]
+            lx = min(80 + int(m.tw(c.label, f)) + 12, x - 20)
+            p.d.line((x, y0, lx, ly), fill=p.primary, width=3)
+            p.text((80, ly), c.label, f, p.dark, anchor="lm")
         else:
-            ly = y0 - 60 - step
-            tx, ty, anchor = W - 80, ly - 30, "ra"
-            lx = max(W - 80 - int(p.tw(c.label, f)) - 10, x + 20)
-        p.d.line((x, y0, lx, ly), fill=p.primary, width=3)
-        p.text((tx, ty), c.label, f, p.dark, anchor=anchor)
-    y = py + sh + 90
+            ly = side_ly[i]
+            lx = max(W - 80 - int(m.tw(c.label, f)) - 12, x + 20)
+            p.d.line((x, y0, lx, ly), fill=p.primary, width=3)
+            p.text((W - 80, ly), c.label, f, p.dark, anchor="rm")
+    y = stats_y
     if page.stats:
         cw = (W - 160) // len(page.stats)
         for i, s in enumerate(page.stats):
@@ -452,6 +540,7 @@ def r_trust(spec: DetailSpec, page: TrustPage, a: LoadedAssets) -> Painter:
 
 RENDERERS: dict[str, Callable] = {
     "hero": r_hero, "features": r_features, "steps": r_steps, "levels": r_levels,
+    "modes": r_modes,
     "callouts": r_callouts, "chips": r_chips, "scenes": r_scenes, "spec_table": r_spec_table,
     "oem_odm": r_oem_odm, "trust": r_trust,
 }

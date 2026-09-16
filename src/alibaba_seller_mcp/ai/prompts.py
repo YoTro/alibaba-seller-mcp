@@ -91,8 +91,8 @@ DETAIL_SPEC_SYSTEM = (
     "that exceeds a field's limit will be rejected.\n"
     "- Write in the requested language; give metric units and add imperial in "
     "parentheses where buyers expect it (cm/in, g/oz).\n"
-    "- Order: hero first, then benefits (features), how-to (steps), adjustable levels "
-    "(levels, only if the product truly has selectable levels), structure (callouts), "
+    "- Order: hero first, then benefits (features), how-to (steps), settings "
+    "(levels OR modes, only if the product has them), structure (callouts), "
     "compatibility/target lists (chips), lifestyle (scenes, only if scene photos "
     "exist), specifications (spec_table, always), OEM/ODM (oem_odm, only if the "
     "seller offers it), trust (trust, only with real patent/warranty/material facts). "
@@ -111,6 +111,10 @@ DETAIL_SPEC_SYSTEM = (
     '{"type":"features","title","subtitle","items":[{"title","text"} x2-5],"note":str}\n'
     '{"type":"steps","title","subtitle","steps":[{"title","text"} x3-6],"tip":{"title","text"}|null}\n'
     '{"type":"levels","title","subtitle","levels":[{"label","intensity":1-5,"value","note"} x2-4],"footnote"}\n'
+    "  (levels: ONLY for a real magnitude scale — dose/speed/power/brightness that goes low->high.)\n"
+    '{"type":"modes","title","subtitle","modes":[{"label","value","note"} x2-4],"footnote"}\n'
+    "  (modes: for named settings that are NOT a ranking — e.g. Indoor/Outdoor/Light, Eco/Turbo/Sleep. "
+    "value = the concrete setting, note = what it is for. No intensity, no invented icons/images.)\n"
     '{"type":"callouts","title","subtitle","image":"side"|"hero","callouts":[{"label","x","y","side":"up"|"down"|"left"|"right"} x1-6],"stats":[{"value","label"}<=4],"summary"}\n'
     '{"type":"chips","title","subtitle","groups":[{"heading","tone":"positive"|"negative"|"neutral","items":[str]} x1-3],"notice":{"title","text"}|null}\n'
     '{"type":"scenes","title","subtitle"}\n'

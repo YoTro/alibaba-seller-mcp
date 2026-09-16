@@ -11,6 +11,25 @@ from .fonts import font as _font
 from .image_ops import DARK_TEXT, GRAY, LIGHT, RGB, WHITE, hex_rgb
 from .spec import DetailSpec
 
+# CJK "compatibility" unit squares render as tofu (□) in Arial/DejaVu because the
+# single-glyph forms are absent. Expand them to ASCII+combining equivalents the
+# body fonts do have, so specs written with ㎡ / ℃ still render. Applied at the one
+# place all text is measured and drawn, so width and pixels stay in sync.
+_GLYPH_FIXUPS = {
+    "㎡": "m²", "㎥": "m³",           # ㎡ ㎥
+    "℃": "°C", "℉": "°F",           # ℃ ℉
+    "㎜": "mm", "㎝": "cm", "㎞": "km",     # ㎜ ㎝ ㎞
+    "㎏": "kg", "㎖": "ml", "ℓ": "L",      # ㎏ ㎖ ℓ
+}
+
+
+def _san(text: str) -> str:
+    if text:
+        for bad, good in _GLYPH_FIXUPS.items():
+            if bad in text:
+                text = text.replace(bad, good)
+    return text
+
 
 class Painter:
     def __init__(self, spec: DetailSpec, height: int, bg: RGB = WHITE):
@@ -29,7 +48,7 @@ class Painter:
         return _font(size, weight, self._font_dir)
 
     def tw(self, text: str, fnt) -> float:
-        return self.d.textlength(text, font=fnt)
+        return self.d.textlength(_san(text), font=fnt)
 
     def wrap(self, text: str, fnt, max_w: int) -> list[str]:
         lines, cur = [], ""
@@ -64,7 +83,7 @@ class Painter:
                 + self.block_h(subtitle, self.f(24), self.W - 200) + 20)
 
     def text(self, xy, text: str, fnt, fill: RGB = DARK_TEXT, anchor: str = "la"):
-        self.d.text(xy, text, font=fnt, fill=fill, anchor=anchor)
+        self.d.text(xy, _san(text), font=fnt, fill=fill, anchor=anchor)
 
     def block(self, xy, text: str, fnt, fill: RGB = DARK_TEXT, max_w: int | None = None,
               spacing: int = 8, center: bool = False) -> int:

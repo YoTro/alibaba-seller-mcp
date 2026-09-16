@@ -88,6 +88,29 @@ class LevelsPage(_Strict):
     footnote: str = Field(default="", max_length=120)
 
 
+class Mode(_Strict):
+    """One named operating mode. Carries only stated facts — no magnitude, so the
+    card never implies a ranking the product does not have. ``icon`` is an optional
+    generic icon name (reserved for the icon-font layer); unknown/blank → text only."""
+
+    label: str = Field(max_length=24)
+    value: str = Field(default="", max_length=32, description="the concrete setting, e.g. 'High', '365nm UV'")
+    note: str = Field(default="", max_length=80, description="what it is for / best for")
+    icon: str = Field(default="", max_length=24)
+
+
+class ModesPage(_Strict):
+    """2–4 named operating modes as comparison cards, category-agnostic and with no
+    magnitude implied. Use for discrete modes (Indoor/Outdoor/Light, Eco/Turbo/Sleep,
+    Smoothie/Ice/Pulse); use ``levels`` only for genuine intensity/dose/speed/power."""
+
+    type: Literal["modes"]
+    title: str = Field(max_length=48)
+    subtitle: str = Field(default="", max_length=140)
+    modes: list[Mode] = Field(min_length=2, max_length=4)
+    footnote: str = Field(default="", max_length=120)
+
+
 class Callout(_Strict):
     label: str = Field(max_length=44)
     x: float = Field(ge=0.0, le=1.0, description="fraction of image width")
@@ -171,13 +194,13 @@ class TrustPage(_Strict):
 
 Page = Annotated[
     Union[
-        HeroPage, FeaturesPage, StepsPage, LevelsPage, CalloutsPage,
+        HeroPage, FeaturesPage, StepsPage, LevelsPage, ModesPage, CalloutsPage,
         ChipsPage, ScenesPage, SpecTablePage, OemOdmPage, TrustPage,
     ],
     Field(discriminator="type"),
 ]
 
-PAGE_TYPES = ("hero", "features", "steps", "levels", "callouts", "chips", "scenes", "spec_table", "oem_odm", "trust")
+PAGE_TYPES = ("hero", "features", "steps", "levels", "modes", "callouts", "chips", "scenes", "spec_table", "oem_odm", "trust")
 
 
 # ── assets / theme / spec ────────────────────────────────────────────────────
