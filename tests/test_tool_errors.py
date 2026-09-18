@@ -13,7 +13,11 @@ from mcp.types import CallToolResult
 from alibaba_seller_mcp import server
 from alibaba_seller_mcp.alibaba.errors import AlibabaError
 from alibaba_seller_mcp.models import (
-    AuthStatusResult, MediaInfoResult, PublishResult, Result, VideoRelateResult,
+    AuthStatusResult,
+    MediaInfoResult,
+    PublishResult,
+    Result,
+    VideoRelateResult,
 )
 from alibaba_seller_mcp.pathsafe import PathNotAllowedError
 
@@ -42,7 +46,7 @@ def test_success_is_not_flagged():
 def test_every_caught_exception_type_is_flagged():
     for exc in (AlibabaError("api down"), PathNotAllowedError("nope"),
                 ValueError("bad input"), RuntimeError("missing env")):
-        def boom() -> MediaInfoResult:
+        def boom(exc=exc) -> MediaInfoResult:   # bind the loop variable
             raise exc
 
         out = server.tool_errors(MediaInfoResult)(boom)()
@@ -70,7 +74,7 @@ def test_business_failure_is_flagged_and_keeps_the_payload():
 
 def test_successful_publish_is_not_mistaken_for_a_business_failure():
     for biz in (True, "true", None):
-        def good() -> PublishResult:
+        def good(biz=biz) -> PublishResult:
             return PublishResult(product_id="123", biz_success=biz)
 
         out = server.tool_errors(PublishResult)(good)()
@@ -96,7 +100,7 @@ def test_a_refused_video_relation_is_a_business_failure():
 
 def test_a_successful_video_relation_is_not_flagged():
     for verdict in (True, None):
-        def ok() -> VideoRelateResult:
+        def ok(verdict=verdict) -> VideoRelateResult:
             return VideoRelateResult(success=verdict, video_id="v1")
 
         out = server.tool_errors(VideoRelateResult)(ok)()

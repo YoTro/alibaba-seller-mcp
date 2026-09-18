@@ -14,7 +14,8 @@ complex (fixed nested fields), multiComplex (repeated nested groups), label
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from typing import Any
 
 
@@ -28,7 +29,7 @@ class SchemaField:
     max_length: int | None = None
     options: list[dict[str, str]] = dc_field(default_factory=list)  # {value, displayName}
     rules: dict[str, str] = dc_field(default_factory=dict)
-    children: list["SchemaField"] = dc_field(default_factory=list)
+    children: list[SchemaField] = dc_field(default_factory=list)
 
     def to_dict(self, *, prune: bool = True) -> dict[str, Any]:
         out: dict[str, Any] = {"id": self.id, "type": self.type}

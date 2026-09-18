@@ -1,5 +1,7 @@
 # alibaba-seller-mcp
 
+[![CI](https://github.com/YoTro/alibaba-seller-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/YoTro/alibaba-seller-mcp/actions/workflows/ci.yml)
+
 An MCP server for the **Alibaba.com Global B2B** open platform. It gives
 an MCP client (Claude Desktop, Claude Code, or any MCP host) tools to:
 
@@ -60,8 +62,9 @@ alibaba-seller-mcp/
 │   ├── rendering/               # deterministic renderer (no AI, no brief knowledge)
 │   │   ├── spec.py              # page-template DTOs (the AI ↔ renderer contract)
 │   │   ├── image_ops.py         # cut-outs, transparency, colour variants
-│   │   ├── fonts.py / painter.py# font lookup, drawing primitives
+│   │   ├── fonts.py / painter.py# font lookup, drawing primitives (2× supersampled)
 │   │   ├── pages.py             # one renderer per page type
+│   │   ├── typefaces/           # bundled Inter (SIL OFL)
 │   │   ├── render.py            # render_spec(spec, out_dir)
 │   │   └── main_images.py       # main-image crops
 │   │   ── shared ────────────────────────────────────────────────
@@ -307,7 +310,7 @@ Put the seller's photos in the brief and leave `images` empty:
   "brand": ["XXXX"], "category_id": 201335115,
   "photos": {
     "hero": "hero.png",                 // white-background render (required)
-    "side": "side.png",                 // side render (for callouts / colour variants)
+    "side": "side.png",                 // side render (for features / steps / callouts)
     "scenes": [{ "path": "kitchen.png", "caption": "Kitchen" }, { "path": "patio.png", "caption": "Patio" }],
     "theme": { "primary": "#F47A20", "dark": "#1A1A1A" }
   },
@@ -336,8 +339,13 @@ Then either call `listing_media_prepare(brief_path=…)` explicitly, or just
 The spec's page schema lives in `src/alibaba_seller_mcp/rendering/spec.py`; the prompt that fills it is `ai/prompts.py` → `DETAIL_SPEC_SYSTEM`
 (`products/example/brief.json` → `detail_spec` is a filled template of every page
 type). Field lengths are enforced, so copy stays short enough to fit; unknown facts are
-omitted, never invented. Fonts: macOS Arial / Linux DejaVu are found automatically; set
-`DETAIL_FONT_DIR` or `theme.font_dir` to use your own.
+omitted, never invented.
+
+Look: bundled Inter with tight headline tracking, product renders on light-grey stages
+with a soft contact shadow, the accent colour (`theme.primary`) only on eyebrows,
+numbers and one gradient line per page, stats as big numbers with small units, and
+rounded cards. Pages are drawn at 2× and downsampled. Set `DETAIL_FONT_DIR` or
+`theme.font_dir` to override the typeface (files named like `Inter-SemiBold.ttf`).
 
 ## Publishing a product (full manifest)
 
@@ -468,7 +476,18 @@ Requests are signed with **HMAC-SHA256**: parameters (system + business, excludi
 ```bash
 pip install -e ".[dev]"
 pytest
+ruff check .          # lint: pyflakes, import order, bugbear, pyupgrade
+lint-imports          # architecture guard: package layers (see [tool.importlinter])
 ```
+
+CI (`.github/workflows/ci.yml`) runs those three on every push and pull request —
+ruff and `lint-imports` once, pytest on Python 3.11 / 3.12 / 3.13 — plus a build job
+that checks the wheel's metadata with `twine check`.
+
+The layers contract pins the dependency direction — server → listing → ai → alibaba →
+rendering → usage → files → leaf modules — and a second contract keeps the renderer and
+the file readers free of `anthropic` / `requests` / `mcp`, so the drawing engine stays
+runnable (and testable) without the platform.
 
 ## Tool safety & schemas
 
@@ -510,3 +529,8 @@ pytest
 The `.env` and the state dir (`~/.alibaba_seller_mcp`, holding OAuth tokens and the
 usage log) are gitignored. Never commit real credentials. The filesystem allowlist
 above limits what an untrusted MCP client can read or write.
+
+## License
+
+MIT — see [LICENSE.md](LICENSE.md). The bundled Inter typeface
+(`rendering/typefaces/`) is under the SIL Open Font License 1.1.

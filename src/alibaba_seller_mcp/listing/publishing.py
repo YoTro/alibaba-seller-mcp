@@ -39,9 +39,9 @@ from typing import Any
 
 from ..alibaba.manifest import ProductManifest
 from ..alibaba.values import DEFAULT_LEAD_TIME, build_ladder_period, option_code
-from .media import prepare_brief_media
 from ..files.readers import MIN_IMAGE_SIDE, image_quality_issues, read_image  # noqa: F401
 from ..pathsafe import ensure_allowed, ensure_asset_allowed
+from .media import prepare_brief_media
 
 MAIN_MIN, MAIN_MAX = 4, 6
 

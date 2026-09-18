@@ -7,6 +7,8 @@ name = "alibaba-seller-mcp"
 version = "0.2.4"
 description = "MCP server for the Alibaba.com Global B2B open platform: seller auth, product upload/edit, local media & price ingestion, AI listing content, and token usage stats."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE.md", "src/alibaba_seller_mcp/rendering/typefaces/OFL.txt"]
 requires-python = ">=3.11"
 authors = [{ name = "yotro" }]
 dependencies = [
@@ -18,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0"]
+dev = ["pytest>=8.0.0", "import-linter>=2.0", "ruff>=0.6"]
 
 [project.scripts]
 alibaba-seller-mcp = "alibaba_seller_mcp.server:main"
@@ -26,6 +28,50 @@ alibaba-seller-auth = "alibaba_seller_mcp.authserver:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/alibaba_seller_mcp"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+# pyflakes + the pycodestyle errors worth having, import order, bugbear, pyupgrade.
+# E501 stays off: prose in prompts/docstrings is not worth rewrapping.
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["alibaba_seller_mcp"]
+
+# Architecture guard: run `lint-imports` (CI or locally). The layers below are the
+# dependency direction the packages are designed around — the engine never reaches
+# up into the platform or AI layers.
+[tool.importlinter]
+root_packages = ["alibaba_seller_mcp"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Package layers"
+type = "layers"
+layers = [
+    "alibaba_seller_mcp.server",       # MCP tool surface
+    "alibaba_seller_mcp.authserver",   # OAuth callback CLI
+    "alibaba_seller_mcp.listing",      # brief → main images + detail pages → publish
+    "alibaba_seller_mcp.ai",           # Claude copywriting
+    "alibaba_seller_mcp.alibaba",      # platform client
+    "alibaba_seller_mcp.rendering",    # deterministic image engine
+    "alibaba_seller_mcp.usage",        # token accounting
+    "alibaba_seller_mcp.files",        # local media / price ingestion
+    "alibaba_seller_mcp.storage",
+    "alibaba_seller_mcp.text_format",
+    "alibaba_seller_mcp.models",
+    "alibaba_seller_mcp.config",
+    "alibaba_seller_mcp.pathsafe",
+]
+
+[[tool.importlinter.contracts]]
+name = "The renderer draws, it never calls out"
+type = "forbidden"
+source_modules = ["alibaba_seller_mcp.rendering", "alibaba_seller_mcp.files"]
+forbidden_modules = ["anthropic", "requests", "mcp"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

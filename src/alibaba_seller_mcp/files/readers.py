@@ -115,7 +115,7 @@ def read_image(path: str, *, load_bytes: bool = True) -> ImageAsset:
     )
 
 
-def image_quality_issues(asset: "ImageAsset", kind: str = "main") -> list[str]:
+def image_quality_issues(asset: ImageAsset, kind: str = "main") -> list[str]:
     """Advisory checks against the product-image guidance (does not raise).
 
     ``kind="main"`` — ≤5 MB, >640×640, aspect ratio 3:4–4:3.

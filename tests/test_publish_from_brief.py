@@ -107,8 +107,9 @@ def test_load_returns_the_brief_and_its_folder(tmp_path):
 
 
 def test_load_is_confined_to_the_allowlist(tmp_path):
-    from alibaba_seller_mcp.pathsafe import PathNotAllowedError
     import pytest
+
+    from alibaba_seller_mcp.pathsafe import PathNotAllowedError
 
     outside = tmp_path.parent / "elsewhere.json"
     outside.write_text("{}", encoding="utf-8")
@@ -254,8 +255,9 @@ def test_inline_and_file_briefs_produce_the_same_manifest(tmp_path):
 
 
 def test_a_declared_base_dir_is_confined_to_the_allowlist(tmp_path):
-    from alibaba_seller_mcp.pathsafe import PathNotAllowedError
     import pytest
+
+    from alibaba_seller_mcp.pathsafe import PathNotAllowedError
 
     inside = tmp_path / "product"
     inside.mkdir()

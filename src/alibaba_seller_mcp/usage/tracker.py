@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ..storage import UsageStore
@@ -69,7 +69,7 @@ class UsageTracker:
         cost = estimate_cost(model, input_tokens, output_tokens, cache_read, cache_write)
         record = {
             "ts": time.time(),
-            "iso": datetime.now(timezone.utc).isoformat(),
+            "iso": datetime.now(UTC).isoformat(),
             "model": model,
             "label": label,
             "input_tokens": input_tokens,
@@ -179,7 +179,7 @@ def _parse_since(since_iso: str | None) -> float | None:
     try:
         dt = datetime.fromisoformat(since_iso)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt.timestamp()
     except ValueError:
         return None

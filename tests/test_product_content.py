@@ -113,7 +113,10 @@ def test_custom_attributes_restricted_to_digits_letters_spaces(tmp_path):
 
 def test_highlights_intro_and_faqs_clipped_to_platform_limits(tmp_path):
     from alibaba_seller_mcp.alibaba.values import (
-        MAX_COMPANY_DESC_LEN, MAX_FAQ_ANSWER_LEN, MAX_FAQ_COUNT, MAX_FAQ_QUESTION_LEN,
+        MAX_COMPANY_DESC_LEN,
+        MAX_FAQ_ANSWER_LEN,
+        MAX_FAQ_COUNT,
+        MAX_FAQ_QUESTION_LEN,
         MAX_HIGHLIGHTS_LEN,
     )
 

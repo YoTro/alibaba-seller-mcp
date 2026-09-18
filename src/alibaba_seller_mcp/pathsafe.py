@@ -8,8 +8,8 @@ checked to be inside one of the configured roots.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 
 class PathNotAllowedError(PermissionError):

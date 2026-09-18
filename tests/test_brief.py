@@ -1,8 +1,8 @@
 """brief flow helpers: image count/quality checks and fact+AI attribute resolution."""
 
-from alibaba_seller_mcp.listing import publishing as bf
 from alibaba_seller_mcp.alibaba.schema import parse_item_schema
 from alibaba_seller_mcp.files.readers import image_quality_issues, read_image
+from alibaba_seller_mcp.listing import publishing as bf
 
 ICBU = """
 <itemSchema><field id="icbuCatProp" type="complex"><fields>

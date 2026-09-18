@@ -7,8 +7,9 @@ publish API. ``ProductService`` and the brief flow both consume one.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from ..pathsafe import ensure_allowed
 from .errors import AlibabaError
@@ -39,7 +40,7 @@ class ProductManifest:
         self.allowed_roots = list(allowed_roots) if allowed_roots is not None else None
 
     @classmethod
-    def load(cls, path: str, *, allowed_roots: Iterable[Path] | None = None) -> "ProductManifest":
+    def load(cls, path: str, *, allowed_roots: Iterable[Path] | None = None) -> ProductManifest:
         roots = list(allowed_roots) if allowed_roots is not None else None
         p = Path(ensure_allowed(path, roots)) if roots is not None else Path(path).expanduser()
         if not p.exists():

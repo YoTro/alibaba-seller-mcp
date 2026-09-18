@@ -14,8 +14,9 @@ tools that touch the filesystem — confines paths to the configured allowlist.
 
 import functools
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
@@ -30,9 +31,8 @@ from .alibaba.manifest import ProductManifest
 from .alibaba.products import ProductService
 from .alibaba.videos import VideoService
 from .config import Config, load_config, load_dotenv
-from .listing import PublishFromBrief, prepare_brief_media
-from .rendering import DetailSpec, render_spec
 from .files.readers import FileIngestError, read_image, read_video
+from .listing import PublishFromBrief, prepare_brief_media
 from .models import (
     AuthStatusResult,
     AuthUrlResult,
@@ -47,9 +47,9 @@ from .models import (
     ProductDetailResult,
     PublishResult,
     RawCallResult,
-    RenderedImage,
     RenderDraftField,
     RenderDraftResult,
+    RenderedImage,
     Result,
     SchemaResult,
     UploadImageResult,
@@ -60,6 +60,7 @@ from .models import (
     VideoRelateResult,
 )
 from .pathsafe import PathNotAllowedError, ensure_allowed
+from .rendering import DetailSpec, render_spec
 from .storage import TokenStore, UsageStore
 from .usage.tracker import UsageTracker
 
