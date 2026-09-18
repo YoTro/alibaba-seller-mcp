@@ -10,9 +10,11 @@ from pydantic import ValidationError
 
 from alibaba_seller_mcp.ai.detail_spec import DetailSpecGenerator
 from alibaba_seller_mcp.config import Config
-from alibaba_seller_mcp.rendering import DetailSpec, PagesOnly, prepare_main_images, render_spec
 from alibaba_seller_mcp.listing.media import prepare_brief_media
+from alibaba_seller_mcp.rendering import DetailSpec, PagesOnly, prepare_main_images, render_spec
+from alibaba_seller_mcp.rendering.fonts import font
 from alibaba_seller_mcp.rendering.image_ops import recolor
+from alibaba_seller_mcp.rendering.painter import split_number
 from alibaba_seller_mcp.rendering.spec import Assets, SceneAsset
 from alibaba_seller_mcp.storage import UsageStore
 from alibaba_seller_mcp.usage.tracker import UsageTracker
@@ -122,6 +124,10 @@ MAXED_PAGES = [
     {"type": "steps", "title": _long(48), "subtitle": _long(120),
      "steps": [{"title": _long(48), "text": _long(180)} for _ in range(6)],
      "tip": {"title": _long(40), "text": _long(320)}},
+    {"type": "levels", "title": _long(48), "subtitle": _long(140), "footnote": _long(120),
+     "levels": [{"label": _long(24), "intensity": 5, "value": _long(32), "note": _long(60)} for _ in range(4)]},
+    {"type": "modes", "title": _long(48), "subtitle": _long(140), "footnote": _long(120),
+     "modes": [{"label": _long(24), "value": _long(32), "note": _long(80)} for _ in range(4)]},
     {"type": "callouts", "title": _long(48), "subtitle": _long(140),
      "callouts": [{"label": _long(44), "x": 0.5, "y": 0.5}],
      "stats": [{"value": _long(24), "label": _long(40)} for _ in range(4)], "summary": _long(160)},
@@ -140,7 +146,7 @@ MAXED_PAGES = [
 
 
 def _ink_rows(im: Image.Image) -> list[int]:
-    """Rows holding text-dark pixels, ignoring the dark footer band."""
+    """Rows holding text-dark pixels above the footer."""
     px = im.convert("RGB").load()
     rows = []
     for y in range(0, im.size[1] - 70):
@@ -154,14 +160,14 @@ def _ink_rows(im: Image.Image) -> list[int]:
 
 def _ink_in_margins(im: Image.Image, margin: int = 40) -> list[tuple[int, int]]:
     """Text pixels inside the page's outer margin — i.e. copy that ran off the side.
-    Rows inside a full-bleed dark band (hero banner, footer) are skipped."""
+    Each row is compared with its own left-edge pixel (the page background)."""
     px = im.convert("RGB").load()
     W, H = im.size
     hits = []
     for y in range(H):
         bg = px[0, y]                       # the row's own background (white page or dark band)
         for x in list(range(1, margin)) + list(range(W - margin, W - 1)):
-            if max(abs(c - d) for c, d in zip(px[x, y], bg)) > 55:
+            if max(abs(c - d) for c, d in zip(px[x, y], bg, strict=True)) > 55:
                 hits.append((x, y))
     return hits
 
@@ -171,13 +177,26 @@ def test_maxed_out_copy_stays_inside_the_page(assets_dir):
     into the footer band or off the bottom of the canvas."""
     outs = render_spec(_spec(assets_dir, MAXED_PAGES), assets_dir / "max", base_dir=assets_dir)
     assert len(outs) == len(MAXED_PAGES)
-    for path, page in zip(outs, MAXED_PAGES):
+    for path, page in zip(outs, MAXED_PAGES, strict=True):
         im = Image.open(path)
         rows = _ink_rows(im)
         assert rows, f"{page['type']}: nothing rendered"
-        # the footer strip is the last 60px; leave a 10px breathing margin above it
-        assert max(rows) < im.size[1] - 70, f"{page['type']}: text runs into the footer"
+        # footer hairline sits 84px from the bottom; keep 30px clear above it
+        assert not [y for y in rows if y >= im.size[1] - 114], f"{page['type']}: text runs into the footer"
         assert not _ink_in_margins(im), f"{page['type']}: text runs off the side of the page"
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("2 yrs", ("2", "yrs")), ("15-25㎡", ("15-25", "m²")), ("15,000hrs", ("15,000", "hrs")),
+    ("≤30 dB", ("≤30", "dB")), ("3", ("3", "")), ("IPX4", ("IPX4", "")),
+])
+def test_split_number(value, expected):
+    assert split_number(value) == expected
+
+
+def test_inter_is_bundled_and_switches_to_display_at_large_sizes():
+    assert font(20, "semibold", family="inter").getname()[0] == "Inter"
+    assert font(64, "bold", family="inter").getname()[0] == "Inter Display"
 
 
 def test_boxes_grow_with_their_copy(assets_dir):

@@ -10,7 +10,7 @@ can be saved, hand-edited and re-rendered without spending tokens.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -42,7 +42,7 @@ class Row(_Strict):
 
 # ── page types ───────────────────────────────────────────────────────────────
 class HeroPage(_Strict):
-    """Dark banner with brand, product name, badges and the hero render."""
+    """Brand eyebrow, product name, gradient tagline, tags, the hero render and big-number stats."""
 
     type: Literal["hero"]
     tagline: str = Field(max_length=70)
@@ -52,7 +52,7 @@ class HeroPage(_Strict):
 
 
 class FeaturesPage(_Strict):
-    """Side render on the left, 2–5 benefit cards on the right."""
+    """Side render on a stage, then 2–5 benefit cards in a two-column grid."""
 
     type: Literal["features"]
     title: str = Field(max_length=48)
@@ -168,7 +168,7 @@ class ColorOption(_Strict):
 
 
 class OemOdmPage(_Strict):
-    """OEM/ODM offer: colour variants (recoloured render), logo placement, services, process."""
+    """OEM/ODM offer: colour variants (recoloured hero render), logo placement, services, process."""
 
     type: Literal["oem_odm"]
     title: str = Field(default="OEM / ODM SERVICE", max_length=32)
@@ -193,10 +193,7 @@ class TrustPage(_Strict):
 
 
 Page = Annotated[
-    Union[
-        HeroPage, FeaturesPage, StepsPage, LevelsPage, ModesPage, CalloutsPage,
-        ChipsPage, ScenesPage, SpecTablePage, OemOdmPage, TrustPage,
-    ],
+    HeroPage | FeaturesPage | StepsPage | LevelsPage | ModesPage | CalloutsPage | ChipsPage | ScenesPage | SpecTablePage | OemOdmPage | TrustPage,
     Field(discriminator="type"),
 ]
 
@@ -219,8 +216,8 @@ class Assets(_Strict):
 
 
 class Theme(_Strict):
-    primary: str = "#F47A20"       # brand accent (chips, bars, badges)
-    dark: str = "#1A1A1A"          # banners, footer
+    primary: str = "#F47A20"       # brand accent (eyebrows, numbers, headline gradient)
+    dark: str = "#1A1A1A"          # shade behind scene captions
     positive: str = "#2EA05A"
     negative: str = "#D63C3C"
     font_dir: str | None = None    # override font lookup (see fonts.py)

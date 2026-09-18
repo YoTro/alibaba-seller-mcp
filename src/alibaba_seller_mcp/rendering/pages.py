@@ -1,260 +1,239 @@
 """One renderer per page type (Strategy registry ``RENDERERS``).
 
-Each function takes the spec, one page model and the loaded assets, and returns a
-:class:`Painter` holding the finished canvas."""
+Each layout is a single ``draw(painter, page, assets) -> bottom`` function. The
+:func:`page` wrapper runs it once on a dry painter to learn how tall the page must
+be, then again on the real canvas, so measuring and drawing can never disagree."""
 
 from __future__ import annotations
 
 import math
-from typing import Callable
+from collections.abc import Callable
+from functools import wraps
 
 from PIL import Image
 
-from .image_ops import DARK_TEXT, GRAY, LIGHT, LINE, TINT, WHITE, accent_band, fit, recolor, tint
-from .painter import Painter
+from .image_ops import WHITE, accent_band, fit, recolor, tint
+from .painter import CLOUD, FOOTER_H, GUTTER, INK, SUB, TOP, TRACK, Painter, mix
 from .render_assets import LoadedAssets
 from .spec import (
-    CalloutsPage, ChipsPage, DetailSpec, FeaturesPage, HeroPage, LevelsPage, ModesPage,
-    OemOdmPage, ScenesPage, SpecTablePage, StepsPage, TrustPage,
+    CalloutsPage,
+    ChipsPage,
+    DetailSpec,
+    FeaturesPage,
+    HeroPage,
+    LevelsPage,
+    ModesPage,
+    OemOdmPage,
+    ScenesPage,
+    SpecTablePage,
+    StepsPage,
+    TrustPage,
 )
 
-
-def r_hero(spec: DetailSpec, page: HeroPage, a: LoadedAssets) -> Painter:
-    m = Painter.ruler(spec)
-    W = spec.width
-    badge_f, tag_f, intro_f, label_f = m.f(26, "bold"), m.f(34, "bold"), m.f(26), m.f(22)
-
-    # badges flow onto as many rows as they need instead of running off the banner
-    badge_rows: list[list[str]] = []
-    x = 80
-    for b in page.badges:
-        w = m.tw(b, badge_f) + 44          # chip() pads 22px each side
-        if not badge_rows or x + w > W - 80:
-            badge_rows.append([])
-            x = 80
-        badge_rows[-1].append(b)
-        x += w + 16
-    tag_h = m.block_h(page.tagline, tag_f, W - 160, 6)
-    intro_h = m.block_h(page.intro, intro_f, W - 160, 4)
-    banner_h = (250 + tag_h + (14 + len(badge_rows) * 66 if badge_rows else 0)
-                + (6 + intro_h if page.intro else 0) + 40)
-
-    hero = fit(a.hero, W - 200, 640)
-    label_w = (W - 160) // max(1, len(page.stats)) - 24
-    value_f = m.f(40, "black")
-    value_h = max((m.block_h(s.value, value_f, label_w, 6) for s in page.stats), default=0)
-    label_h = max((m.block_h(s.label, label_f, label_w, 4) for s in page.stats), default=0)
-    H = banner_h + 40 + hero.size[1] + (40 + value_h + 12 + label_h + 30 if page.stats else 30) + 60
-
-    p = Painter(spec, H)
-    p.d.rectangle((0, 0, W, banner_h), fill=p.dark)
-    p.text((80, 90), spec.brand, p.f(40, "black"), p.primary)
-    name_font = p.f(72 if p.tw(spec.product_name, p.f(72, "black")) < W - 160 else 56, "black")
-    p.text((80, 150), spec.product_name, name_font, WHITE)
-    y = p.block((80, 250), page.tagline, tag_f, (200, 200, 200), max_w=W - 160, spacing=6)
-    if badge_rows:
-        y += 14
-        for row in badge_rows:
-            x = 80
-            for b in row:
-                x = p.chip((x, y), b, badge_f, p.primary) + 16
-            y += 66
-    if page.intro:
-        p.block((80, y + 6), page.intro, intro_f, (220, 220, 220), max_w=W - 160, spacing=4)
-    hy = banner_h + 40
-    p.paste(hero, ((W - hero.size[0]) // 2, hy))
-    if page.stats:
-        sy = hy + hero.size[1] + 40
-        cw = (W - 160) // len(page.stats)
-        for i, s in enumerate(page.stats):
-            cx = 80 + cw * i + cw // 2
-            p.block((cx, sy), s.value, value_f, p.primary, max_w=label_w, center=True, spacing=6)
-            p.block((cx, sy + value_h + 12), s.label, label_f, GRAY, max_w=label_w, center=True, spacing=4)
-    p.footer()
-    return p
+GAP = 20          # between cards
+SECTION = 80      # between page sections
+BOTTOM = 90       # last content → footer hairline
 
 
-def r_features(spec: DetailSpec, page: FeaturesPage, a: LoadedAssets) -> Painter:
-    m = Painter.ruler(spec)
-    W = spec.width
-    title_f, body_f = m.f(28, "bold"), m.f(20)
-    text_w = W - 60 - 720
-    # each card is as tall as its own title + body needs
-    title_h = [m.block_h(it.title, title_f, text_w, 6) for it in page.items]
-    body_h = [m.block_h(it.text, body_f, text_w, 4) for it in page.items]
-    card_h = [max(110, 16 + t + 8 + b + 16) for t, b in zip(title_h, body_h)]
-    side = fit(a.side, 560, 420)
-    H = (60 + m.header_h(page.title, page.subtitle)
-         + max(sum(h + 16 for h in card_h) + 10, side.size[1] + 20) + 30
-         + (100 if page.note else 20) + 60)
-    p = Painter(spec, H)
-    y = p.header(60, page.title, page.subtitle)
-    p.paste(side, (60, y + 20))
-    cy = y + 10
-    for it, th, ch in zip(page.items, title_h, card_h):
-        p.card((660, cy, W - 60, cy + ch))
-        p.d.rectangle((660, cy, 672, cy + ch), fill=p.primary)
-        p.block((700, cy + 16), it.title, title_f, p.dark, max_w=text_w, spacing=6)
-        p.block((700, cy + 24 + th), it.text, body_f, GRAY, max_w=text_w, spacing=4)
-        cy += ch + 16
-    y = max(cy, y + 20 + side.size[1]) + 30
-    if page.note:
-        p.d.rectangle((60, y, W - 60, y + 2), fill=LINE)
-        p.block((W // 2, y + 40), page.note, p.f(24, "bold"), DARK_TEXT, max_w=W - 200, center=True)
-    p.footer()
-    return p
+def page(draw: Callable[[Painter, object, LoadedAssets], float]):
+    @wraps(draw)
+    def render(spec: DetailSpec, pg, a: LoadedAssets) -> Painter:
+        bottom = draw(Painter(spec, 1, dry=True), pg, a)
+        p = Painter(spec, math.ceil(bottom) + BOTTOM + FOOTER_H)
+        draw(p, pg, a)
+        p.footer()
+        return p
+    return render
 
 
-def r_steps(spec: DetailSpec, page: StepsPage, a: LoadedAssets) -> Painter:
-    m = Painter.ruler(spec)
-    W = spec.width
-    rows = math.ceil(len(page.steps) / 3)
-    cw = (W - 160 - 40) // 3
-    title_f, body_f = m.f(30, "bold"), m.f(21)
-    title_w, body_w = cw - 100, cw - 48
-    # measure every card, then give the cards in a row the tallest one's height so
-    # the row still lines up while no text can spill out of its box
-    title_h = [m.block_h(st.title, title_f, title_w, 5) for st in page.steps]
-    card_h = [max(84, 24 + t + 14) + m.block_h(st.text, body_f, body_w, 5) + 22
-              for st, t in zip(page.steps, title_h)]
-    row_h = [max(card_h[r * 3:(r + 1) * 3]) for r in range(rows)]
-    side = fit(a.side, 700, 460)
-    tip_h = 62 + m.block_h(page.tip.text, body_f, W - 220, 5) + 26 if page.tip else 0
-    H = (60 + m.header_h(page.title, page.subtitle) + side.size[1] + 30
-         + sum(h + 20 for h in row_h) + (tip_h + 40 if page.tip else 20) + 60)
-
-    p = Painter(spec, H)
-    y = p.header(60, page.title, page.subtitle)
-    p.paste(side, ((W - side.size[0]) // 2, y))
-    y += side.size[1] + 30
-    for i, st in enumerate(page.steps):
-        col, row = i % 3, i // 3
-        x0 = 80 + col * (cw + 20)
-        y0 = y + sum(h + 20 for h in row_h[:row])
-        p.card((x0, y0, x0 + cw, y0 + row_h[row]))
-        p.badge((x0 + 40, y0 + 40), i + 1)
-        p.block((x0 + 80, y0 + 24), st.title, title_f, p.dark, max_w=title_w, spacing=5)
-        p.block((x0 + 24, y0 + max(84, 24 + title_h[i] + 14)), st.text, body_f, GRAY,
-                max_w=body_w, spacing=5)
-    y += sum(h + 20 for h in row_h) + 20
-    if page.tip:
-        p.card((80, y, W - 80, y + tip_h), fill=TINT)
-        p.text((110, y + 20), page.tip.title or "Tip", p.f(26, "bold"), p.primary)
-        p.block((110, y + 62), page.tip.text, body_f, DARK_TEXT, max_w=W - 220, spacing=5)
-    p.footer()
-    return p
+def _grid(cols: int, width: float) -> float:
+    return (width - GAP * (cols - 1)) / cols
 
 
-def r_levels(spec: DetailSpec, page: LevelsPage, a: LoadedAssets) -> Painter:
-    p = Painter(spec, 1150)
+def _rows(heights: list[float], cols: int) -> list[float]:
+    return [max(heights[r * cols:(r + 1) * cols]) for r in range(math.ceil(len(heights) / cols))]
+
+
+@page
+def r_hero(p: Painter, pg: HeroPage, a: LoadedAssets) -> float:
+    W, cx = p.W, p.W / 2
+    spec = p.spec
+    y = p.eyebrow((cx, TOP - 10), spec.brand, p.accent, size=22, align="m") + 26
+    name_f = p.f(p.fit_size(spec.product_name, (96, 84, 72, 60), "bold", W - 160, TRACK), "bold")
+    y = p.block((cx, y), spec.product_name, name_f, INK, max_w=W - 160, leading=1.05, align="m", track=TRACK)
+    y = p.block((cx, y + 28), pg.tagline, p.f(46, "semibold"), max_w=W - 200, leading=1.12, align="m",
+                track=-0.01, gradient=p.gradient)
+    if pg.intro:
+        y = p.block((cx, y + 30), pg.intro, p.f(26), SUB, max_w=820, leading=1.45, align="m")
+    if pg.badges:
+        y = p.pills(100, y + 36, pg.badges, p.f(20, "medium"), W - 200, center=True)
+    y = p.stage(y + 70, a.hero, W - 280, 680, pad=80)
+    if pg.stats:
+        y = p.stats(y + SECTION, pg.stats)
+    return y
+
+
+@page
+def r_features(p: Painter, pg: FeaturesPage, a: LoadedAssets) -> float:
     W = p.W
-    y = p.header(60, page.title, page.subtitle)
-    n = len(page.levels)
-    cw = (W - 160 - 20 * (n - 1)) // n
-    bars = max([lv.intensity for lv in page.levels] + [3])
-    for i, lv in enumerate(page.levels):
-        x0 = 80 + i * (cw + 20)
-        p.card((x0, y, x0 + cw, y + 560))
-        p.block((x0 + cw // 2, y + 24), lv.label, p.f(36, "black"), p.primary,
-                max_w=cw - 30, center=True, spacing=4)
-        # clean level meter: rising rounded bars, filled up to this mode's intensity
-        cx = x0 + cw // 2
-        aw, ah, base = 220.0, 190.0, y + 360
+    y = p.header(TOP, pg.title, pg.subtitle)
+    y = p.stage(y + 70, a.side, W - 320, 540) + GAP
+    pad = 44
+    idx_f, title_f, body_f = p.f(18, "semibold"), p.f(34, "semibold"), p.f(22)
+    col_w = _grid(2, W - 2 * GUTTER)
+    items = pg.items
+    # two columns; an odd last card spans the full width
+    rows = [items[i:i + 2] for i in range(0, len(items) - len(items) % 2, 2)]
+    if len(items) % 2:
+        rows.append([items[-1]])
+
+    def card_h(it, w) -> float:
+        tw = w - 2 * pad
+        return (2 * pad + p.lh(idx_f) + 18 + p.block_h(it.title, title_f, tw, 1.15, -0.01)
+                + (12 + p.block_h(it.text, body_f, tw, 1.45) if it.text else 0))
+
+    n = 0
+    for row in rows:
+        w = col_w if len(row) == 2 else W - 2 * GUTTER
+        rh = max(card_h(it, w) for it in row)
+        x = GUTTER
+        for it in row:
+            n += 1
+            p.rrect((x, y, x + w, y + rh), 32, CLOUD)
+            ty = p.eyebrow((x + pad, y + pad), f"{n:02d}", p.accent, size=18) + 18
+            ty = p.block((x + pad, ty), it.title, title_f, INK, max_w=w - 2 * pad, leading=1.15, track=-0.01)
+            if it.text:
+                p.block((x + pad, ty + 12), it.text, body_f, SUB, max_w=w - 2 * pad, leading=1.45)
+            x += w + GAP
+        y += rh + GAP
+    y -= GAP
+    if pg.note:
+        y = p.block((W / 2, y + SECTION), pg.note, p.f(36, "semibold"), max_w=W - 240, leading=1.2,
+                    align="m", track=-0.01, gradient=p.gradient)
+    return y
+
+
+@page
+def r_steps(p: Painter, pg: StepsPage, a: LoadedAssets) -> float:
+    W = p.W
+    y = p.header(TOP, pg.title, pg.subtitle)
+    y = p.stage(y + 70, a.side, W - 320, 420, pad=60) + GAP
+    cols = 2 if len(pg.steps) in (2, 4) else 3
+    cw = _grid(cols, W - 2 * GUTTER)
+    pad = 36
+    title_f, body_f = p.f(28, "semibold"), p.f(20)
+    tw = cw - 2 * pad
+    heights = [2 * pad + 44 + 22 + p.block_h(st.title, title_f, tw, 1.2, -0.01)
+               + (10 + p.block_h(st.text, body_f, tw, 1.45) if st.text else 0) for st in pg.steps]
+    row_h = _rows(heights, cols)
+    for i, st in enumerate(pg.steps):
+        r, c = divmod(i, cols)
+        short = cols - min(cols, len(pg.steps) - r * cols)   # empty slots in this row
+        x0 = GUTTER + (c + short / 2) * (cw + GAP)
+        y0 = y + sum(h + GAP for h in row_h[:r])
+        p.rrect((x0, y0, x0 + cw, y0 + row_h[r]), 32, CLOUD)
+        p.number_badge(x0 + pad + 22, y0 + pad + 22, i + 1)
+        ty = p.block((x0 + pad, y0 + pad + 44 + 22), st.title, title_f, INK, max_w=tw, leading=1.2, track=-0.01)
+        if st.text:
+            p.block((x0 + pad, ty + 10), st.text, body_f, SUB, max_w=tw, leading=1.45)
+    y += sum(h + GAP for h in row_h) - GAP
+    if pg.tip:
+        y = p.note_card(y + 40, pg.tip.title or "Tip", pg.tip.text, p.accent)
+    return y
+
+
+@page
+def r_levels(p: Painter, pg: LevelsPage, a: LoadedAssets) -> float:
+    W = p.W
+    y = p.header(TOP, pg.title, pg.subtitle) + 70
+    n = len(pg.levels)
+    cw = _grid(n, W - 2 * GUTTER)
+    pad, meter_h = 32, 150
+    label_f, value_f, note_f = p.f(28, "semibold"), p.f(32, "bold"), p.f(20)
+    tw = cw - 2 * pad
+    label_h = max(p.block_h(lv.label, label_f, tw, 1.2) for lv in pg.levels)
+    value_h = max(p.block_h(lv.value, value_f, tw, 1.1, TRACK) for lv in pg.levels)
+    note_h = max(p.block_h(lv.note, note_f, tw, 1.4) for lv in pg.levels)
+    card_h = 2 * pad + label_h + 36 + meter_h + 36 + value_h + (12 + note_h if note_h else 0)
+    bars = max([lv.intensity for lv in pg.levels] + [3])
+    for i, lv in enumerate(pg.levels):
+        x0 = GUTTER + i * (cw + GAP)
+        cx = x0 + cw / 2
+        p.rrect((x0, y, x0 + cw, y + card_h), 32, CLOUD)
+        p.block((cx, y + pad), lv.label, label_f, INK, max_w=tw, leading=1.2, align="m")
+        # level meter: rising rounded bars, filled up to this level's intensity
+        aw = min(tw, 200)
+        base = y + pad + label_h + 36 + meter_h
         bw = aw / (2 * bars - 1)
         for k in range(bars):
-            bh = ah * (k + 1) / bars
+            bh = meter_h * (k + 1) / bars
             bx = cx - aw / 2 + k * 2 * bw
-            col = p.primary if k < lv.intensity else LIGHT
-            p.d.rounded_rectangle((bx, base - bh, bx + bw, base), radius=bw / 3, fill=col)
-        p.block((cx, y + 400), lv.value, p.f(28, "bold"), p.dark, max_w=cw - 30, center=True, spacing=4)
+            p.rrect((bx, base - bh, bx + bw, base), min(bw / 2, 8),
+                    p.accent if k < lv.intensity else (222, 222, 227))
+        p.block((cx, base + 36), lv.value, value_f, INK, max_w=tw, leading=1.1, align="m", track=TRACK)
         if lv.note:
-            p.block((cx, y + 450), lv.note, p.f(21), GRAY, max_w=cw - 40, center=True)
-        if i < n - 1:
-            ax = x0 + cw + 10
-            p.d.polygon([(ax - 6, y + 270), (ax + 14, y + 280), (ax - 6, y + 290)], fill=p.primary)
-    y += 600
-    if page.footnote:
-        p.block((W // 2, y), page.footnote, p.f(24, "bold"), DARK_TEXT, max_w=W - 200, center=True)
-    side = fit(a.side, 500, 250)
-    p.paste(side, ((W - side.size[0]) // 2, y + 60))
-    p.footer()
-    return p
+            p.block((cx, y + card_h - pad - note_h), lv.note, note_f, SUB, max_w=tw, leading=1.4, align="m")
+    y += card_h
+    if pg.footnote:
+        y = p.block((W / 2, y + 50), pg.footnote, p.f(24), SUB, max_w=W - 200, leading=1.4, align="m")
+    return p.stage(y + 60, a.hero, 500, 360, pad=50)
 
 
-def r_modes(spec: DetailSpec, page: ModesPage, a: LoadedAssets) -> Painter:
+@page
+def r_modes(p: Painter, pg: ModesPage, a: LoadedAssets) -> float:
     """Named operating modes as comparison cards. Category-agnostic: draws only the
-    label, the concrete setting (``value`` pill) and ``note`` — no magnitude graphic,
-    so nothing false is implied for products whose modes are not a ranking."""
-    m = Painter.ruler(spec)
-    W = spec.width
-    n = len(page.modes)
-    cw = (W - 160 - 20 * (n - 1)) // n
-    label_f, value_f, note_f = m.f(34, "black"), m.f(30, "bold"), m.f(21)
-    label_h = max((m.block_h(md.label, label_f, cw - 30, 6) for md in page.modes), default=0)
-    note_h = max((m.block_h(md.note, note_f, cw - 40, 6) for md in page.modes if md.note), default=0)
-    has_pill = any(md.value for md in page.modes)
-    card_h = 40 + label_h + (28 + 60 if has_pill else 10) + (28 + note_h if note_h else 0) + 40
-    H = (60 + m.header_h(page.title, page.subtitle) + card_h + 30
-         + (60 if page.footnote else 0) + 60)
-    p = Painter(spec, H)
-    y = p.header(60, page.title, page.subtitle)
-    for i, md in enumerate(page.modes):
-        x0 = 80 + i * (cw + 20)
-        p.card((x0, y, x0 + cw, y + card_h))
-        cx = x0 + cw // 2
-        yy = p.block((cx, y + 40), md.label, label_f, p.primary, max_w=cw - 30, center=True, spacing=6)
+    label, the concrete setting and the note — no magnitude graphic, so nothing
+    false is implied for products whose modes are not a ranking."""
+    W = p.W
+    y = p.header(TOP, pg.title, pg.subtitle) + 70
+    n = len(pg.modes)
+    cw = _grid(n, W - 2 * GUTTER)
+    pad = 36
+    tw = cw - 2 * pad
+    label_f, value_f, note_f = p.f(36, "bold"), p.f(24, "semibold"), p.f(20)
+    label_h = max(p.block_h(md.label, label_f, tw, 1.1, TRACK) for md in pg.modes)
+    value_h = max(p.block_h(md.value, value_f, tw, 1.25) for md in pg.modes)
+    note_h = max(p.block_h(md.note, note_f, tw, 1.45) for md in pg.modes)
+    card_h = 2 * pad + label_h + (14 + value_h if value_h else 0) + (24 + note_h if note_h else 0)
+    for i, md in enumerate(pg.modes):
+        x0 = GUTTER + i * (cw + GAP)
+        p.rrect((x0, y, x0 + cw, y + card_h), 32, CLOUD)
+        ty = p.block((x0 + pad, y + pad), md.label, label_f, INK, max_w=tw, leading=1.1, track=TRACK)
         if md.value:
-            pill_w = min(cw - 48, m.tw(md.value, value_f) + 56)
-            px0 = cx - pill_w // 2
-            py0 = yy + 24
-            p.d.rounded_rectangle((px0, py0, px0 + pill_w, py0 + 60), radius=30, fill=TINT)
-            p.block((cx, py0 + 15), md.value, value_f, p.dark, max_w=pill_w - 24, center=True)
-            yy = py0 + 60
+            p.block((x0 + pad, ty + 14), md.value, value_f, p.accent, max_w=tw, leading=1.25)
         if md.note:
-            p.block((cx, yy + 28), md.note, note_f, GRAY, max_w=cw - 40, center=True, spacing=6)
-        if i < n - 1:
-            ax, ay = x0 + cw + 10, y + card_h // 2
-            p.d.polygon([(ax - 6, ay - 10), (ax + 14, ay), (ax - 6, ay + 10)], fill=p.primary)
-    y += card_h + 30
-    if page.footnote:
-        p.block((W // 2, y), page.footnote, p.f(24, "bold"), DARK_TEXT, max_w=W - 200, center=True)
-    p.footer()
-    return p
+            nty = y + card_h - pad - note_h   # notes line up across the cards
+            p.hairline(x0 + pad, nty - 12, x0 + cw - pad)
+            p.block((x0 + pad, nty), md.note, note_f, SUB, max_w=tw, leading=1.45)
+    y += card_h
+    if pg.footnote:
+        y = p.block((W / 2, y + 50), pg.footnote, p.f(24), SUB, max_w=W - 200, leading=1.4, align="m")
+    return y
 
 
-def r_callouts(spec: DetailSpec, page: CalloutsPage, a: LoadedAssets) -> Painter:
-    m = Painter.ruler(spec)
-    W = spec.width
-    f = m.f(24, "bold")
-    LH = 42                                   # one label row (line + gap)
-    cos = page.callouts
+@page
+def r_callouts(p: Painter, pg: CalloutsPage, a: LoadedAssets) -> float:
+    W = p.W
+    f = p.f(22, "semibold")
+    LH = 40                                   # one label row (line + gap)
+    cos = pg.callouts
+    img = a.side if pg.image == "side" else a.hero
+    sw, sh = p.product_size(img, W - 460, 560)
+    px = (W - sw) / 2
 
-    # stats / summary sizing (unchanged)
-    stat_w = (W - 160) // max(1, len(page.stats)) - 30
-    stat_val_f = m.f(34, "black")
-    stat_val_h = max((m.block_h(s.value, stat_val_f, stat_w, 6) for s in page.stats), default=0)
-    stat_h = max((22 + stat_val_h + 16 + m.block_h(s.label, m.f(19), stat_w, 2) + 18
-                  for s in page.stats), default=0) if page.stats else 0
-    summary_h = m.block_h(page.summary, m.f(23), W - 200, 8)
-
-    # image geometry — horizontal placement is independent of the label bands, so
-    # fit it first (wide side gutters leave room for left/right labels).
-    img = fit(a.side if page.image == "side" else a.hero, W - 460, 560)
-    sw, sh = img.size
-    px = (W - sw) // 2
-
+    stage_top = p.header(TOP, pg.title, pg.subtitle) + 70
     by = {s: [i for i, c in enumerate(cos) if c.side == s] for s in ("up", "down", "left", "right")}
 
     def label_x(i: int) -> float:
-        w = m.tw(cos[i].label, f)
-        return min(max(px + sw * cos[i].x, 80 + w / 2), W - 80 - w / 2)
+        w = p.tw(cos[i].label, f)
+        return min(max(px + sw * cos[i].x, 90 + w / 2), W - 90 - w / 2)
 
     def rows_for(idxs: list[int]) -> tuple[dict[int, int], int]:
         """Assign each up/down label a row so no two overlap horizontally."""
         row: dict[int, int] = {}
         lanes: list[list[tuple[float, float]]] = []
         for i in sorted(idxs, key=label_x):
-            w = m.tw(cos[i].label, f)
+            w = p.tw(cos[i].label, f)
             cx = label_x(i)
             span = (cx - w / 2, cx + w / 2)
             r = 0
@@ -268,8 +247,7 @@ def r_callouts(spec: DetailSpec, page: CalloutsPage, a: LoadedAssets) -> Painter
 
     up_row, up_rows = rows_for(by["up"])
     down_row, down_rows = rows_for(by["down"])
-    up_band = (40 + up_rows * LH) if up_rows else 90
-    py = 60 + m.header_h(page.title, page.subtitle) + up_band
+    py = stage_top + 50 + (40 + up_rows * LH if up_rows else 20)
 
     # left/right: stack labels down the margin so none overlap vertically
     def slots(idxs: list[int]) -> dict[int, float]:
@@ -284,263 +262,225 @@ def r_callouts(spec: DetailSpec, page: CalloutsPage, a: LoadedAssets) -> Painter
 
     side_ly = {**slots(by["left"]), **slots(by["right"])}
     side_bottom = max((v + 20 for v in side_ly.values()), default=0)
+    down_band = (30 + down_rows * LH) if down_rows else 0
+    stage_bottom = max(py + sh + down_band + 60, side_bottom + 40)
 
-    down_band = (30 + down_rows * LH + 16) if down_rows else 0
-    stats_y = max(py + sh + down_band + 30, side_bottom + 20)
-    H = stats_y + (stat_h + 40 if page.stats else 0) + (summary_h + 40 if page.summary else 0) + 70
-
-    p = Painter(spec, H)
-    p.header(60, page.title, page.subtitle)
-    p.paste(img, (px, py))
+    p.rrect((GUTTER, stage_top, W - GUTTER, stage_bottom), 40, CLOUD)
+    p.product(img, W / 2, py, (sw, sh))
+    lead = (150, 150, 155)
     for i, c in enumerate(cos):
-        x, y0 = px + int(sw * c.x), py + int(sh * c.y)
-        p.d.ellipse((x - 9, y0 - 9, x + 9, y0 + 9), fill=p.primary, outline=WHITE, width=3)
+        x, y0 = px + sw * c.x, py + sh * c.y
         if c.side == "up":
-            ex, ey = int(label_x(i)), py - 40 - up_row[i] * LH
-            p.d.line((x, y0, ex, ey), fill=p.primary, width=3)
-            p.text((ex, ey - 34), c.label, f, p.dark, anchor="ma")
+            ex, ey = label_x(i), py - 40 - up_row[i] * LH
+            p.line([(x, y0), (ex, ey)], lead)
+            p.text((ex, ey - 8), c.label, f, INK, align="m", valign="s")
         elif c.side == "down":
-            ex, ey = int(label_x(i)), py + sh + 30 + down_row[i] * LH
-            p.d.line((x, y0, ex, ey), fill=p.primary, width=3)
-            p.text((ex, ey + 8), c.label, f, p.dark, anchor="ma")
+            ex, ey = label_x(i), py + sh + 30 + down_row[i] * LH
+            p.line([(x, y0), (ex, ey)], lead)
+            p.text((ex, ey + 8), c.label, f, INK, align="m")
         elif c.side == "left":
             ly = side_ly[i]
-            lx = min(80 + int(m.tw(c.label, f)) + 12, x - 20)
-            p.d.line((x, y0, lx, ly), fill=p.primary, width=3)
-            p.text((80, ly), c.label, f, p.dark, anchor="lm")
+            lx = min(90 + p.tw(c.label, f) + 12, x - 20)
+            p.line([(x, y0), (lx, ly)], lead)
+            p.text((90, ly), c.label, f, INK, valign="m")
         else:
             ly = side_ly[i]
-            lx = max(W - 80 - int(m.tw(c.label, f)) - 12, x + 20)
-            p.d.line((x, y0, lx, ly), fill=p.primary, width=3)
-            p.text((W - 80, ly), c.label, f, p.dark, anchor="rm")
-    y = stats_y
-    if page.stats:
-        cw = (W - 160) // len(page.stats)
-        for i, s in enumerate(page.stats):
-            x0 = 80 + i * cw
-            p.card((x0 + 6, y, x0 + cw - 6, y + stat_h))
-            p.block((x0 + cw // 2, y + 22), s.value, stat_val_f, p.primary,
-                    max_w=stat_w, center=True, spacing=6)
-            p.block((x0 + cw // 2, y + 38 + stat_val_h), s.label, p.f(19), GRAY,
-                    max_w=stat_w, center=True, spacing=2)
-        y += stat_h + 40
-    if page.summary:
-        p.block((W // 2, y), page.summary, p.f(23), DARK_TEXT, max_w=W - 200, center=True)
-    p.footer()
-    return p
+            lx = max(W - 90 - p.tw(c.label, f) - 12, x + 20)
+            p.line([(x, y0), (lx, ly)], lead)
+            p.text((W - 90, ly), c.label, f, INK, align="r", valign="m")
+        p.circle(x, y0, 9, fill=p.accent, outline=WHITE, width=3)
+    y = stage_bottom
+    if pg.stats:
+        y = p.stats(y + SECTION, pg.stats)
+    if pg.summary:
+        y = p.block((W / 2, y + 60), pg.summary, p.f(26), SUB, max_w=W - 200, leading=1.45, align="m")
+    return y
 
 
-def r_chips(spec: DetailSpec, page: ChipsPage, a: LoadedAssets) -> Painter:
-    # measure first so the canvas height fits the content
-    probe = Painter.ruler(spec)
-    f = probe.f(24, "bold")
-
-    def rows_for(items: list[str]) -> int:
-        x, rows = 80, 1
-        for t in items:
-            w = probe.tw(t, f) + 60 + 30
-            if x + w > spec.width - 80:
-                x, rows = 80, rows + 1
-            x += w + 14
-        return rows
-
-    body = sum(50 + rows_for(g.items) * 70 + 40 for g in page.groups)
-    notice_h = 66 + probe.block_h(page.notice.text, probe.f(22), spec.width - 220) + 26 if page.notice else 0
-    H = 60 + probe.header_h(page.title, page.subtitle) + body + (notice_h + 50 if page.notice else 20) + 60
-    p = Painter(spec, H)
+@page
+def r_chips(p: Painter, pg: ChipsPage, a: LoadedAssets) -> float:
     W = p.W
-    y = p.header(60, page.title, page.subtitle)
-    tone = {"positive": (p.positive, "✔"), "negative": (p.negative, "✖"), "neutral": (p.primary, None)}
-    for g in page.groups:
-        color, sym = tone[g.tone]
-        p.text((80, y), g.heading.upper(), p.f(26, "black"), color)
-        y += 50
-        x, row_y = 80, y
-        for t in g.items:
-            w = p.tw(t, f) + 60 + (30 if sym else 0)
-            if x + w > W - 80:
-                x, row_y = 80, row_y + 70
-            x = p.chip((x, row_y), t, f, color, symbol=sym) + 14
-        y = row_y + 110
-    if page.notice:
-        p.card((80, y, W - 80, y + notice_h), fill=TINT)
-        p.text((110, y + 22), page.notice.title or "Notice", p.f(28, "bold"), p.primary)
-        p.block((110, y + 66), page.notice.text, p.f(22), DARK_TEXT, max_w=W - 220)
-    p.footer()
-    return p
+    y = p.header(TOP, pg.title, pg.subtitle) + 70
+    tone = {"positive": (p.positive, "check"), "negative": (p.negative, "cross"), "neutral": (INK, None)}
+    for g in pg.groups:
+        color, mark = tone[g.tone]
+        y = p.eyebrow((80, y), g.heading, color, size=18) + 20
+        y = p.pills(80, y, g.items, p.f(22, "medium"), W - 160,
+                    fill=CLOUD if mark is None else mix(color, WHITE, 0.9),
+                    mark=mark, mark_color=color) + 56
+    y -= 56
+    if pg.notice:
+        y = p.note_card(y + 60, pg.notice.title or "Notice", pg.notice.text, p.accent)
+    return y
 
 
-def r_scenes(spec: DetailSpec, page: ScenesPage, a: LoadedAssets) -> Painter:
+def _crop_3x4(src: Image.Image) -> Image.Image:
+    w, h = src.size
+    if w / h < 3 / 4:  # tall: keep upper-middle
+        th = int(w * 4 / 3)
+        yy = int((h - th) * 0.35)
+        return src.crop((0, yy, w, yy + th))
+    tw = int(h * 3 / 4)  # wide/square: centre crop
+    xx = (w - tw) // 2
+    return src.crop((xx, 0, xx + tw, h))
+
+
+@page
+def r_scenes(p: Painter, pg: ScenesPage, a: LoadedAssets) -> float:
+    y = p.header(TOP, pg.title, pg.subtitle) + 70
     scenes = a.scenes[:6]
-    cols = 2
-    cw = (spec.width - 160 - 20) // cols
-    ch = int(cw * 4 / 3)
-    rows = max(1, math.ceil(len(scenes) / cols))
-    H = 230 + rows * (ch + 70) + 60
-    p = Painter(spec, H)
-    y = p.header(60, page.title, page.subtitle)
+    cw = _grid(2, p.W - 2 * GUTTER)
+    ch = cw * 4 / 3
+    cap_f = p.f(28, "semibold")
     for i, (cap, src) in enumerate(scenes):
-        col, row = i % cols, i // cols
-        x0, y0 = 80 + col * (cw + 20), y + row * (ch + 70)
-        w, h = src.size
-        if w / h < 3 / 4:  # tall: keep upper-middle
-            th = int(w * 4 / 3)
-            yy = int((h - th) * 0.35)
-            crop = src.crop((0, yy, w, yy + th))
-        else:              # wide/square: centre crop to 3:4
-            tw_ = int(h * 3 / 4)
-            xx = (w - tw_) // 2
-            crop = src.crop((xx, 0, xx + tw_, h))
-        p.paste(crop.resize((cw, ch), Image.LANCZOS), (x0, y0))
+        r, c = divmod(i, 2)
+        x0, y0 = GUTTER + c * (cw + GAP), y + r * (ch + GAP)
+        p.photo(_crop_3x4(src), (x0, y0, x0 + cw, y0 + ch), 28)
         if cap:
-            p.d.rectangle((x0, y0 + ch, x0 + cw, y0 + ch + 50), fill=p.dark)
-            p.text((x0 + cw // 2, y0 + ch + 25), cap, p.f(24, "bold"), WHITE, anchor="mm")
-    p.footer()
-    return p
+            p.scrim((x0, y0 + ch * 0.62, x0 + cw, y0 + ch), p.dark, 28)
+            cap_h = p.block_h(cap, cap_f, cw - 64, 1.15, -0.01)
+            p.block((x0 + 32, y0 + ch - 32 - cap_h), cap, cap_f, WHITE, max_w=cw - 64, leading=1.15, track=-0.01)
+    rows = math.ceil(len(scenes) / 2)
+    return y + rows * (ch + GAP) - GAP if rows else y
 
 
-def r_spec_table(spec: DetailSpec, page: SpecTablePage, a: LoadedAssets) -> Painter:
-    m = Painter.ruler(spec)
-    W = spec.width
-    name_f, val_f = m.f(23, "bold"), m.f(23)
-    name_w, val_w = 300, W - 110 - 430
-    row_h = [max(66, 20 + max(m.block_h(r.name, name_f, name_w, 6),
-                              m.block_h(r.value, val_f, val_w, 6)) + 14) for r in page.rows]
-    H = 60 + m.header_h(page.title) + sum(row_h) + 50 + 60
-    p = Painter(spec, H)
-    y = p.header(60, page.title)
-    for i, r in enumerate(page.rows):
-        p.d.rectangle((80, y, W - 80, y + row_h[i]), fill=LIGHT if i % 2 == 0 else WHITE)
-        p.block((110, y + 20), r.name, name_f, p.dark, max_w=name_w, spacing=6)
-        p.block((430, y + 20), r.value, val_f, DARK_TEXT, max_w=val_w, spacing=6)
-        y += row_h[i]
-    p.d.rectangle((80, y, W - 80, y + 2), fill=LINE)
-    p.footer()
-    return p
+@page
+def r_spec_table(p: Painter, pg: SpecTablePage, a: LoadedAssets) -> float:
+    W = p.W
+    y = p.header(TOP, pg.title) + 70
+    name_f, val_f = p.f(21, "medium"), p.f(22)
+    x0, x1, pad, vpad = GUTTER, W - GUTTER, 44, 24
+    name_w = 300
+    val_x = x0 + pad + name_w + 32
+    val_w = x1 - pad - val_x
+    heights = [2 * vpad + max(p.block_h(r.name, name_f, name_w, 1.4), p.block_h(r.value, val_f, val_w, 1.4))
+               for r in pg.rows]
+    p.rrect((x0, y, x1, y + sum(heights) + 24), 32, CLOUD)
+    yy = y + 12
+    for i, (r, h) in enumerate(zip(pg.rows, heights, strict=True)):
+        if i:
+            p.hairline(x0 + pad, yy, x1 - pad)
+        p.block((x0 + pad, yy + vpad), r.name, name_f, SUB, max_w=name_w, leading=1.4)
+        p.block((val_x, yy + vpad), r.value, val_f, INK, max_w=val_w, leading=1.4)
+        yy += h
+    return yy + 12
 
 
-def r_oem_odm(spec: DetailSpec, page: OemOdmPage, a: LoadedAssets) -> Painter:
-    m = Painter.ruler(spec)
-    W = spec.width
-    svc_f = m.f(18)
-    svc_w = W - 80 - 672
-    svc_title_f = m.f(23, "bold")
-    svc_title_h = [m.block_h(it.title, svc_title_f, svc_w, 6) for it in page.services]
-    svc_h = [max(72, 10 + t + 6 + m.block_h(it.text, svc_f, svc_w, 4) + 12)
-             for it, t in zip(page.services, svc_title_h)]
-    note_h = 24 + m.block_h(page.note, m.f(24, "bold"), W - 220, 10) + 24 if page.note else 0
-    # the dark banner grows with its title / subtitle instead of clipping them
-    title_f, sub_f = m.f(56, "black"), m.f(24)
-    banner_title_h = m.block_h(page.title, title_f, W - 160, 8)
-    banner_h = max(260, 70 + banner_title_h + 10 + m.block_h(page.subtitle, sub_f, W - 200, 6) + 40)
-    H = banner_h + 40
-    H += 100 + 310 if page.colors else 0
-    H += 60 + max(sum(h + 12 for h in svc_h), 330) + 50
-    H += 70 + 170 if page.process else 0
-    H += note_h + 40 if page.note else 0
-    H += 60
-    p = Painter(spec, H)
-    p.d.rectangle((0, 0, W, banner_h), fill=p.dark)
-    by = p.block((W // 2, 70), page.title, title_f, p.primary, max_w=W - 160, center=True)
-    if page.subtitle:
-        p.block((W // 2, by + 10), page.subtitle, sub_f, (220, 220, 220), max_w=W - 200,
-                center=True, spacing=6)
-    y = banner_h + 40
-    if page.colors:
+@page
+def r_oem_odm(p: Painter, pg: OemOdmPage, a: LoadedAssets) -> float:
+    W = p.W
+    y = p.header(TOP, pg.title, pg.subtitle) + SECTION
+    if pg.colors:
         y = p.section_title(y, "Custom Colours", "Match your brand palette – the body can be moulded in your colour.")
-        n = len(page.colors)
-        cw = (W - 160) // n
-        base = fit(a.side, cw - 20, 200)
-        band = accent_band(base)
-        for i, c in enumerate(page.colors):
+        n = len(pg.colors)
+        cw = _grid(n, W - 2 * GUTTER)
+        img_h = 200
+        base = fit(a.hero, int((cw - 40) * p.S), img_h * p.S)
+        band = accent_band(base) if not p.dry else None
+        name_f = p.f(20, "medium")
+        card_h = 36 + img_h + 24 + p.lh(name_f) + 32
+        for i, c in enumerate(pg.colors):
             # The first swatch is the standard colour = the real render, untouched.
-            if i == 0:
+            if i == 0 or p.dry:
                 v = base
             elif band is None:   # black/grey product: tint instead of hue-shift
                 v = tint(base, c.hue, c.saturation, c.brightness)
             else:
                 v = recolor(base, c.hue, c.saturation, c.brightness, band=band)
-            x0 = 80 + i * cw
-            p.card((x0 + 4, y, x0 + cw - 4, y + 260))
-            p.paste(v, (x0 + (cw - v.size[0]) // 2, y + 20))
-            p.text((x0 + cw // 2, y + 218), c.name, p.f(20, "bold"), DARK_TEXT, anchor="ma")
-        y += 310
+            x0 = GUTTER + i * (cw + GAP)
+            size = p.product_size(v, cw - 40, img_h)
+            p.rrect((x0, y, x0 + cw, y + card_h), 28, CLOUD)
+            p.product(v, x0 + cw / 2, y + 36 + img_h - size[1], size)
+            p.text((x0 + cw / 2, y + 36 + img_h + 24), c.name, name_f, INK, align="m")
+        y += card_h + SECTION
+
     y = p.section_title(y, "Custom Logo & Packaging")
-    logo = fit(a.side, 520, 330)
-    p.paste(logo, (80, y))
-    lx, ly = 80 + int(logo.size[0] * 0.45), y + int(logo.size[1] * 0.33)
-    p.d.rounded_rectangle((lx - 80, ly - 22, lx + 80, ly + 22), radius=8, outline=p.primary, width=4)
-    p.text((lx, ly - 50), page.logo_label, p.f(18, "bold"), p.primary, anchor="ma")
+    left_x1 = 560
+    size = p.product_size(a.hero, left_x1 - GUTTER - 80, 330)
+    left_bottom = y + size[1] + 120
+    p.rrect((GUTTER, y, left_x1, left_bottom), 40, CLOUD)
+    pcx = (GUTTER + left_x1) / 2
+    p.product(a.hero, pcx, y + 70, size)
+    lw = min(80, size[0] * 0.35)
+    lx, ly = pcx, y + 70 + size[1] * 0.4
+    p.rrect((lx - lw, ly - 22, lx + lw, ly + 22), 8, outline=p.accent, width=2)
+    p.text((lx, ly - 30), pg.logo_label, p.f(15, "semibold"), p.accent, align="m", valign="s", track=0.08)
+
+    sx0, sx1, pad = left_x1 + GAP, W - GUTTER, 28
+    title_f, body_f = p.f(24, "semibold"), p.f(19)
     cy = y
-    for it, th, h in zip(page.services, svc_title_h, svc_h):
-        p.card((640, cy, W - 80, cy + h))
-        p.d.rectangle((640, cy, 650, cy + h), fill=p.primary)
-        p.block((672, cy + 10), it.title, svc_title_f, p.dark, max_w=svc_w, spacing=6)
-        p.block((672, cy + 16 + th), it.text, svc_f, GRAY, max_w=svc_w, spacing=4)
+    for it in pg.services:
+        tw = sx1 - sx0 - 2 * pad
+        h = 2 * pad + p.block_h(it.title, title_f, tw, 1.2) + (8 + p.block_h(it.text, body_f, tw, 1.45) if it.text else 0)
+        p.rrect((sx0, cy, sx1, cy + h), 24, CLOUD)
+        ty = p.block((sx0 + pad, cy + pad), it.title, title_f, INK, max_w=tw, leading=1.2)
+        if it.text:
+            p.block((sx0 + pad, ty + 8), it.text, body_f, SUB, max_w=tw, leading=1.45)
         cy += h + 12
-    y = max(cy, y + logo.size[1]) + 50
-    if page.process:
-        y = p.section_title(y, "How We Work With You")
-        n = len(page.process)
-        cw = (W - 160) // n
-        for i, t in enumerate(page.process):
-            cx = 80 + i * cw + cw // 2
-            p.badge((cx, y + 30), i + 1, r=30)
-            p.block((cx, y + 80), t, p.f(22, "bold"), DARK_TEXT, max_w=cw - 30, center=True, spacing=4)
+    y = max(left_bottom, cy - 12 if pg.services else y)
+
+    if pg.process:
+        y = p.section_title(y + SECTION, "How We Work With You")
+        n = len(pg.process)
+        cw = (W - 160) / n
+        step_f = p.f(21, "medium")
+        text_h = 0.0
+        for i, t in enumerate(pg.process):
+            cx = 80 + i * cw + cw / 2
             if i < n - 1:
-                p.d.line((cx + 40, y + 30, cx + cw - 40, y + 30), fill=LINE, width=4)
-        y += 170
-    if page.note:
-        p.card((80, y, W - 80, y + note_h), fill=TINT)
-        p.block((110, y + 24), page.note, p.f(24, "bold"), DARK_TEXT, max_w=W - 220, spacing=10)
-    p.footer()
-    return p
+                p.hairline(cx + 40, y + 26, cx + cw - 40)
+            p.number_badge(cx, y + 26, i + 1, r=26)
+            text_h = max(text_h, p.block((cx, y + 72), t, step_f, INK, max_w=cw - 24, leading=1.35, align="m") - y)
+        y += text_h
+    if pg.note:
+        y = p.note_card(y + 60, "", pg.note, p.accent)
+    return y
 
 
-def r_trust(spec: DetailSpec, page: TrustPage, a: LoadedAssets) -> Painter:
-    m = Painter.ruler(spec)
-    notice_h = 64 + m.block_h(page.notice.text, m.f(21), spec.width - 220) + 26 if page.notice else 0
-    foot_h = m.block_h(page.footnote, m.f(19), spec.width - 160) + 20 if page.footnote else 0
-    H = 60 + m.header_h(page.title) + 270 + foot_h + 40
-    H += 60 + 300 + 50 if page.box_items else 0
-    H += notice_h + 40 if page.notice else 0
-    H += 60
-    p = Painter(spec, H)
+@page
+def r_trust(p: Painter, pg: TrustPage, a: LoadedAssets) -> float:
     W = p.W
-    y = p.header(60, page.title)
-    cw = (W - 160) // len(page.badges)
-    for i, b in enumerate(page.badges):
-        cx = 80 + i * cw + cw // 2
-        p.d.ellipse((cx - 115, y, cx + 115, y + 230), outline=p.primary, width=8)
-        vy = p.block((cx, y + 82), b.value, p.f(26, "black"), p.dark, max_w=190, center=True, spacing=4)
-        p.block((cx, vy + 6), b.label, p.f(18), GRAY, max_w=190, center=True, spacing=2)
-    y += 270
-    if page.footnote:
-        p.block((80, y), page.footnote, p.f(19), GRAY, max_w=W - 160)
-        y += foot_h
-    p.d.rectangle((80, y, W - 80, y + 2), fill=LINE)
-    y += 40
-    if page.box_items:
-        p.text((80, y), page.box_title, p.f(34, "black"), p.dark)
-        hero = fit(a.hero, 460, 300)
-        p.paste(hero, (80, y + 60))
-        cy = y + 80
-        for ln in page.box_items:
-            p.d.ellipse((600, cy + 10, 616, cy + 26), fill=p.primary)
-            p.text((636, cy), ln, p.f(24), DARK_TEXT)
-            cy += 50
-        y = y + 60 + hero.size[1] + 50
-    if page.notice:
-        p.card((80, y, W - 80, y + notice_h), fill=LIGHT)
-        p.text((110, y + 22), page.notice.title or "Notice", p.f(26, "bold"), p.negative)
-        p.block((110, y + 64), page.notice.text, p.f(21), DARK_TEXT, max_w=W - 220)
-    p.footer()
-    return p
+    y = p.header(TOP, pg.title) + 70
+    n = len(pg.badges)
+    cw = _grid(n, W - 2 * GUTTER)
+    pad = 32
+    tw = cw - 2 * pad
+    value_f, label_f = p.f(p.fit_size(" ".join(b.value for b in pg.badges), (44, 36, 30), "bold", tw, TRACK),
+                           "bold"), p.f(20)
+    value_h = max(p.block_h(b.value, value_f, tw, 1.1, TRACK) for b in pg.badges)
+    label_h = max(p.block_h(b.label, label_f, tw, 1.4) for b in pg.badges)
+    card_h = 2 * pad + 44 + 22 + value_h + 10 + label_h
+    for i, b in enumerate(pg.badges):
+        x0 = GUTTER + i * (cw + GAP)
+        cx = x0 + cw / 2
+        p.rrect((x0, y, x0 + cw, y + card_h), 32, CLOUD)
+        p.circle(cx, y + pad + 22, 22, outline=p.accent, width=2.5)
+        p.mark("check", cx, y + pad + 22, 18, p.accent)
+        p.block((cx, y + pad + 44 + 22), b.value, value_f, INK, max_w=tw, leading=1.1, align="m", track=TRACK)
+        p.block((cx, y + pad + 44 + 22 + value_h + 10), b.label, label_f, SUB, max_w=tw, leading=1.4, align="m")
+    y += card_h
+    if pg.footnote:
+        y = p.block((80, y + 24), pg.footnote, p.f(19), SUB, max_w=W - 160, leading=1.45)
+    if pg.box_items:
+        y = p.section_title(y + SECTION, pg.box_title)
+        left_x1 = 560
+        stage_bottom = p.stage(y, a.hero, 400, 300, pad=50, x1=left_x1)
+        item_f = p.f(24)
+        lx0 = left_x1 + 60
+        iy = y
+        for k, ln in enumerate(pg.box_items):
+            if k:
+                p.hairline(lx0, iy, W - GUTTER)
+            p.circle(lx0 + 5, iy + 22 + p.lh(item_f) / 2, 5, fill=p.accent)
+            iy = p.block((lx0 + 26, iy + 22), ln, item_f, INK, max_w=W - GUTTER - lx0 - 26, leading=1.35) + 22
+        y = max(stage_bottom, iy)
+    if pg.notice:
+        y = p.note_card(y + 60, pg.notice.title or "Notice", pg.notice.text, p.negative)
+    return y
 
 
 RENDERERS: dict[str, Callable] = {
     "hero": r_hero, "features": r_features, "steps": r_steps, "levels": r_levels,
-    "modes": r_modes,
-    "callouts": r_callouts, "chips": r_chips, "scenes": r_scenes, "spec_table": r_spec_table,
-    "oem_odm": r_oem_odm, "trust": r_trust,
+    "modes": r_modes, "callouts": r_callouts, "chips": r_chips, "scenes": r_scenes,
+    "spec_table": r_spec_table, "oem_odm": r_oem_odm, "trust": r_trust,
 }

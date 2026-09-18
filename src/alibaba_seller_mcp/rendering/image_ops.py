@@ -10,11 +10,6 @@ from PIL import Image, ImageChops
 
 RGB = tuple[int, int, int]
 WHITE: RGB = (255, 255, 255)
-DARK_TEXT: RGB = (51, 51, 51)
-GRAY: RGB = (110, 110, 110)
-LIGHT: RGB = (245, 245, 245)
-LINE: RGB = (220, 220, 220)
-TINT: RGB = (255, 243, 232)
 
 
 def hex_rgb(value: str) -> RGB:
