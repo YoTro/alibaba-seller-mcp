@@ -16,10 +16,10 @@ from typing import Any
 
 from ..config import Config
 from ..files.readers import read_image
-from ..storage import _atomic_write
+from ..storage import atomic_write
 from .client import AlibabaClient
 from .errors import AlibabaError
-from .values import _str_or_none
+from .values import str_or_none
 
 
 class _UploadCache:
@@ -42,7 +42,7 @@ class _UploadCache:
     def put(self, key: str, value: dict[str, Any]) -> None:
         data = self._read()
         data[key] = value
-        _atomic_write(self._path, json.dumps(data, ensure_ascii=False, indent=2))
+        atomic_write(self._path, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def _safe_file_name(name: str) -> str:
@@ -91,7 +91,7 @@ class PhotoBank:
             files=files, protocol="sync",
         )
         resp = body.get("upload_image_response") or {}
-        result = {"file_id": _str_or_none(resp.get("file_id")), "url": resp.get("photobank_url")}
+        result = {"file_id": str_or_none(resp.get("file_id")), "url": resp.get("photobank_url")}
         if not result["url"] and not result["file_id"]:
             raise AlibabaError(f"photobank.upload returned no file_id/url: {body}")
         self._cache.put(cache_key, result)

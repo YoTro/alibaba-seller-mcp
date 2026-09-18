@@ -23,10 +23,22 @@ from ..text_format import clean_title, enforce_length
 from .manifest import ProductManifest
 from .photobank import PhotoBank
 from .values import (
-    MAX_ATTR_NAME_LEN, MAX_ATTR_VALUE_LEN, MAX_COMPANY_DESC_LEN, MAX_FAQ_ANSWER_LEN,
-    MAX_FAQ_COUNT, MAX_FAQ_QUESTION_LEN, MAX_HIGHLIGHTS_LEN, _build_cat_props,
-    _build_sale_props, _image_value, ascii_attr, build_ladder_period, build_skus,
-    clip_body, clip_text, deaccent,
+    MAX_ATTR_NAME_LEN,
+    MAX_ATTR_VALUE_LEN,
+    MAX_COMPANY_DESC_LEN,
+    MAX_FAQ_ANSWER_LEN,
+    MAX_FAQ_COUNT,
+    MAX_FAQ_QUESTION_LEN,
+    MAX_HIGHLIGHTS_LEN,
+    ascii_attr,
+    build_cat_props,
+    build_ladder_period,
+    build_sale_props,
+    build_skus,
+    clip_body,
+    clip_text,
+    deaccent,
+    image_value,
 )
 
 
@@ -98,14 +110,14 @@ class FieldAssembler:
         # detection and option codes come straight from schema.get.
         if "icbuCatProp" not in fields and manifest.data.get("product_attributes"):
             icbu = next((f for f in (schema_fields or []) if f.id == "icbuCatProp"), None)
-            cat_props = _build_cat_props(icbu, manifest.data["product_attributes"])
+            cat_props = build_cat_props(icbu, manifest.data["product_attributes"])
             if cat_props:
                 fields["icbuCatProp"] = cat_props
 
         # sales properties (Color/Size …) -> saleProp, values carry inputValue
         if "saleProp" not in fields and manifest.data.get("sale_props"):
             sale = next((f for f in (schema_fields or []) if f.id == "saleProp"), None)
-            sale_props = _build_sale_props(sale, manifest.data["sale_props"])
+            sale_props = build_sale_props(sale, manifest.data["sale_props"])
             if sale_props:
                 fields["saleProp"] = sale_props
 
@@ -139,11 +151,11 @@ class FieldAssembler:
             sc: dict[str, Any] = {}
             if main_refs:
                 for i, ref in enumerate(main_refs[:6]):
-                    sc[f"scImages_{i}"] = _image_value(ref)
+                    sc[f"scImages_{i}"] = image_value(ref)
             else:
                 for i, rel in enumerate(main[:6]):
                     up = self.photos.upload(manifest.resolve(rel), access_token, group_id=group_id)
-                    sc[f"scImages_{i}"] = _image_value(up)
+                    sc[f"scImages_{i}"] = image_value(up)
             fields["scImages"] = sc
 
         # detail images -> detailImage (from AI modules if present, else the list);

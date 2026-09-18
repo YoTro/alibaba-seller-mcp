@@ -80,12 +80,12 @@ def clip_body(text: str, limit: int) -> str:
     return text if len(text) <= limit else clip_text(text, limit)
 
 
-def _id_str(value):
+def id_str(value):
     """Product ids come back as JSON numbers; the result models expect strings."""
     return None if value is None else str(value)
 
 
-def _str_or_none(value: Any) -> str | None:
+def str_or_none(value: Any) -> str | None:
     return None if value is None else str(value)
 
 
@@ -120,7 +120,7 @@ def _cat_prop_keys(sf: Any) -> set[str]:
     return keys
 
 
-def _build_cat_props(icbu_field: Any, product_attributes: dict[str, Any]) -> dict[str, Any] | None:
+def build_cat_props(icbu_field: Any, product_attributes: dict[str, Any]) -> dict[str, Any] | None:
     """Build ``icbuCatProp`` values from a manifest ``product_attributes`` dict
     (keyed by attribute name or id), using each child's schema type/options."""
     if not icbu_field or not product_attributes:
@@ -168,7 +168,7 @@ def missing_required_cat_props(schema_fields: list, filled: dict[str, Any]) -> l
 # custom: any unique NEGATIVE number as the value, the text as inputValue.
 
 
-def _build_sale_props(sale_field: Any, sale_props: dict[str, Any]) -> dict[str, Any] | None:
+def build_sale_props(sale_field: Any, sale_props: dict[str, Any]) -> dict[str, Any] | None:
     """Build ``saleProp`` values from ``{name-or-id: value | [values]}``."""
     if not sale_field or not sale_props:
         return None
@@ -209,7 +209,7 @@ def build_skus(sale_field: Any, sale_props: dict[str, Any], code_prefix: str) ->
     ``<value propId propName propValueId propValueName>{propId}:{propValueId}</value>``
     where ``propId`` is the sale-property field id without its ``p-`` prefix and
     ``propValueId`` is the option code (a unique negative id for a custom value,
-    matching :func:`_build_sale_props`). One sale property (e.g. Color) for now.
+    matching :func:`build_sale_props`). One sale property (e.g. Color) for now.
     """
     if not sale_field or not sale_props or not code_prefix:
         return None
@@ -280,7 +280,7 @@ def build_ladder_period(lead_time: list | None) -> dict[str, Any]:
     }
 
 
-def _image_value(upload: dict[str, Any]) -> Any:
+def image_value(upload: dict[str, Any]) -> Any:
     """scImages value: the photo-bank URL as text WITH a required fileId attribute
     (``<value fileId="…">url</value>``). Falls back to a plain value if no file_id."""
     file_id = upload.get("file_id")

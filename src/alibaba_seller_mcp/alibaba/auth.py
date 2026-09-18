@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from ..config import Config
-from ..storage import TokenStore, _is_expired
+from ..storage import TokenStore, is_expired
 from .client import AlibabaClient
 from .errors import AlibabaAuthError
 
@@ -77,7 +77,7 @@ class SellerAuth:
                 "No stored authorization. Run the authorize flow first "
                 "(build the authorize URL, then complete it with the code)."
             )
-        if _is_expired(token):
+        if is_expired(token):
             token = self.refresh(token)
         return token["access_token"]
 
@@ -100,7 +100,7 @@ class SellerAuth:
             "authorized": True,
             "account_key": token.get("account_key"),
             "expires_at": token.get("expires_at"),
-            "expired": _is_expired(token),
+            "expired": is_expired(token),
             "has_refresh_token": bool(token.get("refresh_token")),
             "accounts": self.store.list_accounts(),
         }

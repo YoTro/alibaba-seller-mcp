@@ -1,9 +1,13 @@
 """icbuCatProp auto-fill from schema (options/required) + manifest product_attributes."""
 
-from alibaba_seller_mcp.alibaba.values import (
-    _build_cat_props, _build_sale_props, build_ladder_period, missing_required, missing_required_cat_props,
-)
 from alibaba_seller_mcp.alibaba.schema import build_value_xml, parse_item_schema
+from alibaba_seller_mcp.alibaba.values import (
+    build_cat_props,
+    build_ladder_period,
+    build_sale_props,
+    missing_required,
+    missing_required_cat_props,
+)
 
 SALE_SCHEMA = """
 <itemSchema>
@@ -32,7 +36,7 @@ def _sale_fields():
 
 def test_build_sale_props_option_and_custom_values():
     sale = next(f for f in _sale_fields() if f.id == "saleProp")
-    out = _build_sale_props(sale, {"Color": ["orange", "Coral"], "size": "one size"})
+    out = build_sale_props(sale, {"Color": ["orange", "Coral"], "size": "one size"})
     color = out["p-191288010"]
     assert color[0] == {"__value__": "3558409", "__attrs__": {"inputValue": "Orange"}}   # option → code + display name
     assert color[1]["__attrs__"]["inputValue"] == "Coral" and int(color[1]["__value__"]) < 0  # custom → negative id
@@ -45,7 +49,7 @@ def test_custom_sale_value_avoids_the_other_option_id():
         '<option displayName="Black" value="3327837"/><option displayName="other" value="-1"/>',
     )
     sale = next(f for f in parse_item_schema(schema) if f.id == "saleProp")
-    out = _build_sale_props(sale, {"Color": ["Coral", "Teal"]})
+    out = build_sale_props(sale, {"Color": ["Coral", "Teal"]})
     codes = [v["__value__"] for v in out["p-191288010"]]
     names = [v["__attrs__"]["inputValue"] for v in out["p-191288010"]]
     assert "-1" not in codes and len(set(codes)) == 2         # skips the id the "other" option owns
@@ -55,7 +59,7 @@ def test_custom_sale_value_avoids_the_other_option_id():
 def test_sale_props_and_ladder_period_serialize():
     fields = _sale_fields()
     values = {
-        "saleProp": _build_sale_props(next(f for f in fields if f.id == "saleProp"), {"Color": "Orange"}),
+        "saleProp": build_sale_props(next(f for f in fields if f.id == "saleProp"), {"Color": "Orange"}),
         "ladderPeriod": build_ladder_period([[1000, 15], [100, 7]]),
     }
     xml = build_value_xml(fields, values)
@@ -107,7 +111,7 @@ def test_build_cat_props_by_name_and_id_resolves_options():
         "20662": ["Eco-Friendly", "Durable"],  # by bare attr id, multi -> [9, 10]
         "p-3": "C01B",                          # by field id, free text
     }
-    out = _build_cat_props(_icbu(), attrs)
+    out = build_cat_props(_icbu(), attrs)
     assert out["p-1"] == "100"
     assert out["p-20662"] == ["9", "10"]
     # free text rides in inputValue with a negative placeholder value
@@ -116,7 +120,7 @@ def test_build_cat_props_by_name_and_id_resolves_options():
 
 def test_build_cat_props_passes_through_unknown_option_value():
     # a value already given as the option code is kept; unknown text passes through
-    out = _build_cat_props(_icbu(), {"Place of Origin": "200"})
+    out = build_cat_props(_icbu(), {"Place of Origin": "200"})
     assert out["p-1"] == "200"
 
 

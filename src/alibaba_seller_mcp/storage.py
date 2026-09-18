@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 
-def _atomic_write(path: Path, text: str) -> None:
+def atomic_write(path: Path, text: str) -> None:
     """Write via a temp file + rename so a crash never leaves a partial file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
@@ -54,7 +54,7 @@ class TokenStore:
             data.setdefault("accounts", {})[account_key] = token
             if make_default or not data.get("default"):
                 data["default"] = account_key
-            _atomic_write(self._path, json.dumps(data, ensure_ascii=False, indent=2))
+            atomic_write(self._path, json.dumps(data, ensure_ascii=False, indent=2))
 
     def get(self, account_key: str | None = None) -> dict[str, Any] | None:
         data = self._read()
@@ -70,7 +70,7 @@ class TokenStore:
             "accounts": {
                 k: {
                     "expires_at": v.get("expires_at"),
-                    "expired": _is_expired(v),
+                    "expired": is_expired(v),
                     "has_refresh_token": bool(v.get("refresh_token")),
                 }
                 for k, v in data.get("accounts", {}).items()
@@ -78,7 +78,8 @@ class TokenStore:
         }
 
 
-def _is_expired(token: dict[str, Any], *, skew: int = 60) -> bool:
+def is_expired(token: dict[str, Any], *, skew: int = 60) -> bool:
+    """True when ``token`` is past (or within ``skew`` seconds of) its expiry."""
     exp = token.get("expires_at")
     if not exp:
         return False

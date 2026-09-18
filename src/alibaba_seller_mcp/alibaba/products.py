@@ -28,10 +28,22 @@ from .manifest import ProductManifest
 from .photobank import PhotoBank
 from .schema import build_value_xml, describe_schema, parse_item_schema
 from .values import (
-    DEFAULT_LEAD_TIME, LADDER_PERIOD_MAX, MAX_ATTR_NAME_LEN, MAX_ATTR_VALUE_LEN,
-    MAX_COMPANY_DESC_LEN, MAX_FAQ_ANSWER_LEN, MAX_FAQ_COUNT, MAX_FAQ_QUESTION_LEN,
-    MAX_HIGHLIGHTS_LEN, _id_str, build_ladder_period, clip_body, clip_text,
-    missing_required, missing_required_cat_props, missing_required_sale_props,
+    DEFAULT_LEAD_TIME,
+    LADDER_PERIOD_MAX,
+    MAX_ATTR_NAME_LEN,
+    MAX_ATTR_VALUE_LEN,
+    MAX_COMPANY_DESC_LEN,
+    MAX_FAQ_ANSWER_LEN,
+    MAX_FAQ_COUNT,
+    MAX_FAQ_QUESTION_LEN,
+    MAX_HIGHLIGHTS_LEN,
+    build_ladder_period,
+    clip_body,
+    clip_text,
+    id_str,
+    missing_required,
+    missing_required_cat_props,
+    missing_required_sale_props,
     option_code,
 )
 
@@ -211,7 +223,7 @@ class ProductService:
         )
         return {
             "filled_fields": sorted(fields),
-            "product_id": _id_str(body.get("product_id") or product_id),
+            "product_id": id_str(body.get("product_id") or product_id),
             "biz_success": body.get("biz_success"),
             "missing_required": missing_required(schema_fields, fields),
             "response": body,
