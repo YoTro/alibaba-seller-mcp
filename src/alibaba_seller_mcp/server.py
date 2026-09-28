@@ -33,7 +33,23 @@ from .alibaba.videos import VideoService
 from .config import Config, load_config, load_dotenv
 from .files.readers import FileIngestError, read_image, read_video
 from .listing import PublishFromBrief, prepare_brief_media
+from .market import (
+    CamoufoxInjectSolver,
+    HeadlessEnvSolver,
+    HttpSearchSource,
+    KeywordAdsAnalysis,
+    KeywordAdSnapshot,
+    MarketBlockedError,
+    MarketError,
+    MonopolyReport,
+    SliderSolverChain,
+    SnapshotStore,
+    TemplatePool,
+    TemplateReplaySolver,
+)
 from .models import (
+    AdPlacementOut,
+    AdvertiserShare,
     AuthStatusResult,
     AuthUrlResult,
     BriefPublishResult,
@@ -42,7 +58,10 @@ from .models import (
     DetailImagesResult,
     GroupChild,
     GroupResult,
+    KeywordAdsResult,
+    KeywordMonopoly,
     MediaInfoResult,
+    MonopolyReportResult,
     PriceFileResult,
     ProductDetailResult,
     PublishResult,
@@ -85,6 +104,16 @@ Alibaba.com Global B2B seller tools. Recommended listing workflow:
 5. Verify with product_render_draft (or alibaba_raw_call schema.render.draft) that
    scImages has 4-6 fileIds and detailImage lists every detail page. Each publish
    creates a NEW draft — tell the seller to delete superseded drafts in the console.
+
+Keyword ad research (public alibaba.com search, no seller auth):
+- ads_keyword_monopoly(keywords=[…]) tells how locked each keyword is by annual
+  buyouts (top booth / duxiu / star brand / topad_classic / bottom booth) vs. open to P4P
+  bidding. Snapshots are cached for a day; do not pass refresh=True in a loop.
+- alibaba.com shows a slider check after a few requests. With ALIBABA_MARKET_SOLVE_SLIDER=1
+  (needs Camoufox + Playwright) the server passes it in a browser and retries automatically.
+  Otherwise, on blocked keywords ask the seller to open the search in a browser and either
+  refresh the cookie file or save the page and pass it via html_paths. Never retry a blocked
+  keyword by hand.
 """
 
 mcp = MCPServer("alibaba-seller-mcp", instructions=INSTRUCTIONS)
@@ -107,6 +136,7 @@ class Context:
         self._detail: ProductDetailGenerator | None = None
         self._detail_spec: DetailSpecGenerator | None = None
         self._publishing: PublishFromBrief | None = None
+        self._market: KeywordAdsAnalysis | None = None
 
     @property
     def config(self) -> Config:
@@ -179,6 +209,41 @@ class Context:
         return self._publishing
 
 
+    @property
+    def market(self) -> KeywordAdsAnalysis:
+        """Keyword ads on the public buyer site — one HTTP session per server run."""
+        if self._market is None:
+            cfg = self.config
+            solver = self._slider_solver(cfg)
+            self._market = KeywordAdsAnalysis(
+                HttpSearchSource(cfg.market_cookie_path, min_interval=cfg.market_min_interval,
+                                 solver=solver),
+                SnapshotStore(cfg.market_snapshot_path),
+                cache_ttl_seconds=cfg.market_cache_ttl_hours * 3600,
+                unparsed_dir=cfg.state_dir / "market_unparsed",
+            )
+        return self._market
+
+    @staticmethod
+    def _slider_solver(cfg: Config) -> SliderSolverChain | None:
+        """The slider-solving chain, cheapest route first, or None when disabled.
+
+        The browser tier always anchors the chain when solving is on (it is the tier that
+        always passes); the cheap tiers are prepended only when their own flag is set. With
+        template replay on, the browser tier also refills its template pool."""
+        if not cfg.market_solve_slider:
+            return None
+        tiers: list = []
+        pool = TemplatePool(cfg.market_slider_template_dir) if cfg.market_slider_algo else None
+        if pool is not None:
+            tiers.append(TemplateReplaySolver(pool, max_uses=cfg.market_slider_template_uses))
+        if cfg.market_slider_headless_sign:
+            tiers.append(HeadlessEnvSolver(cfg.market_headless_signer_dir))
+        tiers.append(CamoufoxInjectSolver(
+            headless=cfg.market_slider_headless, os_type=cfg.market_slider_os, pool=pool))
+        return SliderSolverChain(tiers)
+
+
 ctx = Context()
 
 
@@ -203,6 +268,7 @@ def tool_errors(model: type[Result]) -> Callable:
                 result = fn(*args, **kwargs)
             except (
                 AlibabaError,
+                MarketError,
                 FileIngestError,
                 PathNotAllowedError,
                 ValueError,
@@ -689,6 +755,119 @@ def generate_product_detail(
     )
 
 
+
+
+# ── alibaba.com keyword ads ───────────────────────────────────────────────────
+def _market_country(country: str) -> str:
+    return (country or ctx.config.market_country).strip().upper()
+
+
+def _placement_out(p: Any) -> AdPlacementOut:
+    return AdPlacementOut(**p.to_dict())
+
+
+def _monopoly_out(r: MonopolyReport, *, cached: bool) -> KeywordMonopoly:
+    def share(h: Any) -> AdvertiserShare:
+        return AdvertiserShare(advertiser=h.advertiser, company_name=h.company_name, kinds=list(h.kinds),
+                               share=h.share, first_seen=h.first_seen)
+
+    return KeywordMonopoly(
+        keyword=r.keyword, country=r.country, verdict=r.verdict, monopoly_rate=r.monopoly_rate,
+        locked_share=r.locked_share, hhi=r.hhi, ad_slots=r.ad_slots,
+        holders=[share(h) for h in r.holders], top_advertisers=[share(h) for h in r.top_advertisers],
+        fetched_at=r.fetched_at, source=r.source, cached=cached, include_organic=r.include_organic,
+        notes=list(r.notes),
+    )
+
+
+def _ads_result(snap: KeywordAdSnapshot, *, cached: bool) -> KeywordAdsResult:
+    slots: dict[str, int] = {}
+    for p in snap.ads:
+        slots[p.kind.value] = slots.get(p.kind.value, 0) + 1
+    return KeywordAdsResult(
+        keyword=snap.keyword, country=snap.country, source=snap.source, cached=cached,
+        fetched_at=snap.fetched_at, total_results=snap.total_results, list_length=snap.list_length,
+        ad_slots=slots,
+        ads=[_placement_out(p) for p in snap.ads],
+        organic=[_placement_out(p) for p in snap.placements if not p.kind.is_ad],
+        warnings=list(snap.warnings),
+    )
+
+
+@mcp.tool(annotations=_anno("Search keyword ads on alibaba.com", read_only=True, open_world=True))
+@tool_errors(KeywordAdsResult)
+def ads_search_keyword(
+    keyword: str = "",
+    country: str = "",
+    html_path: str = "",
+    refresh: bool = False,
+    bottom_p4p: bool = True,
+) -> KeywordAdsResult:
+    """List every ad on page 1 of an alibaba.com keyword search, and who holds it.
+
+    Kinds: top_booth / duxiu / star_brand / bottom_booth / topad_classic (annual
+    buyouts; topad_classic is a card inside the product list) and p4p_list /
+    p4p_bottom (bid). Organic results come back separately.
+    `country` (ISO code, default ALIBABA_MARKET_COUNTRY) is the buyer country the
+    ads are targeted at. A snapshot younger than the cache TTL is reused unless
+    `refresh`. `html_path` analyses a search page saved from a browser instead of
+    fetching one — the fallback when the site shows its slider check and no browser
+    solver is enabled (ALIBABA_MARKET_SOLVE_SLIDER).
+    """
+    c = _market_country(country)
+    if html_path:
+        snap = ctx.market.snapshot_from_file(Path(_safe_read(html_path)), c, keyword=keyword or None,
+                                             bottom_p4p=bottom_p4p)
+        return _ads_result(snap, cached=False)
+    got = ctx.market.snapshot(keyword, c, refresh=refresh, bottom_p4p=bottom_p4p)
+    return _ads_result(got.snapshot, cached=got.cached)
+
+
+@mcp.tool(annotations=_anno("Keyword monopoly rate", read_only=True, open_world=True))
+@tool_errors(MonopolyReportResult)
+def ads_keyword_monopoly(
+    keywords: list[str] | None = None,
+    country: str = "",
+    html_paths: list[str] | None = None,
+    include_organic: bool = False,
+    refresh: bool = False,
+    bottom_p4p: bool = True,
+) -> MonopolyReportResult:
+    """How much of each keyword's page-1 ad exposure is owned by annual-buyout holders.
+
+    Per keyword: `verdict` (locked / anchored / contested / open), `monopoly_rate`
+    (share of position-weighted ad exposure held by buyout holders, their P4P slots
+    included), `locked_share` (share in buyout slots — what bidding cannot win),
+    `hhi` (advertiser concentration) and the holders, with the date each was first
+    seen holding a buyout for this keyword. `include_organic` adds the organic
+    results to the pool. Pass saved pages via `html_paths` instead of `keywords`
+    to analyse them offline. Requests stop at the first slider check; the keywords
+    it blocked are listed in `blocked`.
+    """
+    c = _market_country(country)
+    if html_paths:
+        batch = ctx.market.monopoly_from_files([Path(_safe_read(p)) for p in html_paths], c,
+                                               include_organic=include_organic, bottom_p4p=bottom_p4p)
+    else:
+        if not keywords:
+            raise ValueError("pass keywords, or html_paths of saved search pages")
+        batch = ctx.market.monopoly(keywords, c, include_organic=include_organic, refresh=refresh,
+                                    bottom_p4p=bottom_p4p)
+    if not batch.reports and batch.blocked_url:
+        raise MarketBlockedError(batch.blocked_url, batch.blocked_notes)
+    if not batch.reports and batch.failed:
+        raise MarketError("; ".join(f"{k}: {v}" for k, v in batch.failed.items()))
+    notes = []
+    if batch.blocked:
+        notes.append(f"stopped requesting at the slider check ({batch.blocked_url}); "
+                     f"{len(batch.blocked)} keyword(s) not analysed — pass the check in a browser and "
+                     "refresh the cookie file, or save those pages and use html_paths")
+    cached = set(batch.cached)
+    return MonopolyReportResult(
+        country=c,
+        keywords=[_monopoly_out(r, cached=r.keyword in cached) for r in batch.reports],
+        blocked=batch.blocked, blocked_url=batch.blocked_url, failed=batch.failed, notes=notes,
+    )
 
 
 # ── token usage stats ────────────────────────────────────────────────────────

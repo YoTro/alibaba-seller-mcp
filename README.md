@@ -17,11 +17,15 @@ an MCP client (Claude Desktop, Claude Code, or any MCP host) tools to:
 - **Read images / videos / prices from local files** — validated locally, then
   uploaded to the photo bank to obtain hosted URLs.
 - **Track AI token usage** with per-model USD cost estimates, and cap it per session.
+- **Research keyword ads** on the public alibaba.com search — who holds the annual
+  buyout booths, who bids P4P, and each keyword's **monopoly rate**.
 
 ## Project structure
 
 Organised by layer, and the dependencies only point downwards — **adapters →
-application → integrations → engine → shared**. The rendering engine knows nothing
+application → integrations → engine → shared**. `alibaba/` (the signed open
+platform) and `market/` (the public buyer site) are sibling integrations that never
+import each other. The rendering engine knows nothing
 about Alibaba, briefs or Claude; it depends on `pathsafe` and nothing else.
 
 ```
@@ -53,6 +57,15 @@ alibaba-seller-mcp/
 │   │   ├── categories.py        # category system attributes (required + options)
 │   │   ├── videos.py            # video ↔ product relation (+ id encrypt/resolve)
 │   │   └── groups.py            # product groups
+│   ├── market/                  # alibaba.com search: keyword ads + monopoly rate (no seller auth)
+│   │   ├── page_data.py         # HTML → the page's JSON data blocks; slider-page detection
+│   │   ├── ads.py               # AdKind / AdPlacement / KeywordAdSnapshot (domain model)
+│   │   ├── parsers.py           # one strategy per ad source (booth registry keyed by `type`)
+│   │   ├── monopoly.py          # MonopolyScorer — pure, position-weighted scoring
+│   │   ├── sources.py           # live HTTP source (cookie jar, pacing) + saved-page source
+│   │   ├── slider.py            # slider-solving chain: template replay → headless → Camoufox browser
+│   │   ├── snapshots.py         # JSONL cache + history (holder first-seen dates)
+│   │   └── analysis.py          # KeywordAdsAnalysis — the request policy + orchestration
 │   ├── ai/                      # Claude generators — one class per concern
 │   │   ├── prompts.py           # every built-in prompt (edit wording rules here)
 │   │   ├── base.py              # shared client / usage recording / JSON extraction
@@ -175,6 +188,8 @@ Claude Desktop (`claude_desktop_config.json`):
 | `video_relate_product` | Set a product's main/detail video (single slot — replaces an existing one; numeric ids auto-encrypted) |
 | `video_list_related` | List product ids related to a video |
 | `product_group_get` | Get a product group / list top-level groups (`group_id=-1`) |
+| `ads_search_keyword` | Every ad on page 1 of an alibaba.com keyword search and who holds it (live, cached, or a saved page) |
+| `ads_keyword_monopoly` | Per keyword: verdict, monopoly rate, locked share, HHI, buyout holders + first-seen dates |
 | `usage_stats` | Report AI token usage + estimated USD cost |
 
 Resource: `usage://summary` — all-time usage grouped by model.
@@ -445,6 +460,81 @@ At publish time, `main_images`/`detail_images` are uploaded to the photo bank
 `price_file` fills `ladderPrice` (when `scPrice` is `"1"`) plus MOQ. Field ids and
 option codes are category-specific — always check `product_get_schema` first.
 
+## Keyword ads and monopoly rate
+
+`ads_keyword_monopoly(keywords=["roach killer", "mini excavator"])` reads page 1 of
+each alibaba.com search (no login, no seller token) and tells you how much of it is
+already bought for the year:
+
+| Ad | Where on the page | Sold as |
+|---|---|---|
+| Top booth | `_wending.topBoothModel`, `type: "wending"` (campaign type 12) | annual buyout |
+| Duxiu | `_wending.topBoothModel`, `type: "duxiu"` (campaign type 14; seen on a brand keyword) | annual buyout |
+| Star brand | `_wending.starBrandModel`, `type: "starbrand"` (campaign type 36) | annual buyout |
+| Bottom booth | `_wending.bottomBoothModel`, `type: "creative"` → `creativeList[]` | annual buyout |
+| topad_classic | a card **inside the product list** (usually rank 1): the offer carrying `adInfo`, product type `newad`, campaign type 32. Its `isShowAd` is false — it is not organic | annual buyout |
+| P4P in the list | `offerResultData.offers[]` with `isShowAd` | bid per click |
+| Bottom P4P | async `p4p-enmatch.alibaba.com/async/b2bad.do` | bid per click |
+
+The top slot holds one booth (top booth, duxiu **or** star brand), never two. Every booth shows
+one company's products, so a booth is one advertiser. A `*Model` with an unknown
+`type` is reported in `warnings`, not dropped.
+
+**Scoring.** A slot is weighted by the attention its position gets, not counted:
+list rank *r* weighs `1/log2(r+1)` (topad_classic included — it is a list card),
+a top-slot booth weighs as much as the first 8 ranks together, a bottom booth as
+much as the last rank, a bottom P4P half that.
+
+| Metric | Meaning |
+|---|---|
+| `locked_share` | exposure in buyout slots — what bidding cannot win |
+| `monopoly_rate` | exposure held by buyout holders, **their P4P slots included** |
+| `hhi` | Σ share² over advertisers |
+| `verdict` | `locked` (buyout, rate ≥ 0.5) · `anchored` (buyout, lower) · `contested` (no buyout, hhi ≥ 0.25) · `open` |
+
+Bottom-P4P advertisers carry only an encrypted member id, so they count toward `hhi`
+but are never joined to a buyout holder. `include_organic=True` adds the organic
+results to the pool. `holders[].first_seen` is the earliest snapshot in which that
+company held a buyout for the keyword — a rough renewal date.
+
+**Requests.** alibaba.com shows a slider check after a few requests from a bare
+client. It keeps one session per run, waits `ALIBABA_MARKET_MIN_INTERVAL` seconds
+(default 10) between requests, reuses a keyword's snapshot for
+`ALIBABA_MARKET_CACHE_TTL_HOURS` (default 24), and stops requesting at the first
+slider page — the result lists the keywords it `blocked`. Three ways through:
+
+- **Solve it automatically.** Set `ALIBABA_MARKET_SOLVE_SLIDER=1`. The server runs a
+  solver chain, cheapest route first: ① template replay over plain HTTP, ② a headless
+  Node signer (gated off, `ALIBABA_MARKET_SLIDER_HEADLESS_SIGN`), then ④ a real browser
+  (③ is the cookie file, reused and written back by every solve). The browser tier is
+  the one that always works: install it with `pip install 'alibaba-seller-mcp[browser]'`
+  then `python -m camoufox fetch`. On a slider page it opens the search in a Camoufox
+  (anti-fingerprint Firefox) session, injects a synthetic drag to the real nc component
+  (which signs with the real umid + environment and submits itself), and retries with
+  the `x5sec` cookies that clears — persisting them to the cookie file for later runs.
+  `ALIBABA_MARKET_SLIDER_HEADLESS=false` lets you watch it.
+  Each token the browser gets accepted is also decoded back into its four data blocks
+  and saved as a template (`~/.alibaba_seller_mcp/slider_templates/`). Next time, tier
+  ① fetches the challenge with `requests`, re-signs a saved template with a fresh umid in
+  pure Python and submits — no browser launch. A template
+  retires after `ALIBABA_MARKET_SLIDER_TEMPLATE_USES` uses (default 5) or two rejections,
+  and the chain falls through to the browser, which saves a new one. Set
+  `ALIBABA_MARKET_SLIDER_ALGO=0` to skip replay. The solver code is in-repo
+  (`market/slider.py`), adapted from the `camoufox-reverse-mcp/site_alibaba`
+  reverse-engineering archive;
+- pass the check in a browser yourself, copy that request's `Cookie` header (DevTools
+  → Network) into `~/.alibaba_seller_mcp/market_cookie.txt` (or
+  `ALIBABA_MARKET_COOKIE_FILE`) — its `x5sec` cookie clears the check;
+- or save the search page (Save As… → HTML) and pass it: `html_paths=[…]`.
+
+A response that is neither a search page nor the slider is saved under
+`~/.alibaba_seller_mcp/market_unparsed/` and named in `failed`, so a new page
+variant can be inspected without fetching it again. The cookie file is re-read
+whenever it changes — no restart needed after refreshing it.
+
+Ads are targeted by buyer country: `country` (default `ALIBABA_MARKET_COUNTRY`,
+`US`) is sent as the `buyer_ship_to_info` cookie and recorded on every report.
+
 ## Price file formats
 
 **CSV** (header row required):
@@ -484,10 +574,11 @@ CI (`.github/workflows/ci.yml`) runs those three on every push and pull request 
 ruff and `lint-imports` once, pytest on Python 3.11 / 3.12 / 3.13 — plus a build job
 that checks the wheel's metadata with `twine check`.
 
-The layers contract pins the dependency direction — server → listing → ai → alibaba →
-rendering → usage → files → leaf modules — and a second contract keeps the renderer and
-the file readers free of `anthropic` / `requests` / `mcp`, so the drawing engine stays
-runnable (and testable) without the platform.
+The layers contract pins the dependency direction — server → listing → ai →
+alibaba | market → rendering → usage → files → leaf modules — and two more contracts
+keep the renderer and the file readers free of `anthropic` / `requests` / `mcp` (so the
+drawing engine stays runnable and testable without the platform) and keep `market`
+free of `anthropic` / `mcp`.
 
 ## Tool safety & schemas
 
@@ -526,8 +617,11 @@ runnable (and testable) without the platform.
 
 ## Security
 
-The `.env` and the state dir (`~/.alibaba_seller_mcp`, holding OAuth tokens and the
-usage log) are gitignored. Never commit real credentials. The filesystem allowlist
+The `.env` and the state dir (`~/.alibaba_seller_mcp`, holding OAuth tokens, the
+usage log, the market cookie file and keyword-ad snapshots) are gitignored. A copied
+browser cookie is a live session if you were logged in — keep it in the state dir.
+Market fixtures are made with `tests/fixtures/market/trim_page.py`, which keeps only
+whitelisted fields (no chat tokens, viewer ids or requester IP). Never commit real credentials. The filesystem allowlist
 above limits what an untrusted MCP client can read or write.
 
 ## License

@@ -232,3 +232,69 @@ class UsageStatsResult(Result):
     filters: dict[str, Any] = Field(default_factory=dict)
     totals: dict[str, Any] = Field(default_factory=dict)
     groups: dict[str, Any] = Field(default_factory=dict)
+
+
+# ── alibaba.com keyword ads ────────────────────────────────────────────────────
+class AdPlacementOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str
+    advertiser: str
+    company_id: str | None = None
+    company_name: str | None = None
+    rank: int | None = None
+    product_ids: list[str] = Field(default_factory=list)
+    campaign_id: str | None = None
+    campaign_type: str | None = None
+    resource_lock_id: str | None = None
+    match_type: str | None = None
+    is_exact: bool | None = None
+
+
+class KeywordAdsResult(Result):
+    keyword: str | None = None
+    country: str | None = None
+    source: str | None = None               # http | file
+    cached: bool | None = None
+    fetched_at: float | None = None
+    total_results: int | None = None
+    list_length: int | None = None
+    ad_slots: dict[str, int] = Field(default_factory=dict)
+    ads: list[AdPlacementOut] = Field(default_factory=list)
+    organic: list[AdPlacementOut] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AdvertiserShare(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    advertiser: str
+    company_name: str | None = None
+    kinds: list[str] = Field(default_factory=list)
+    share: float
+    first_seen: float | None = None
+
+
+class KeywordMonopoly(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    keyword: str
+    country: str
+    verdict: str                             # locked | anchored | contested | open
+    monopoly_rate: float
+    locked_share: float
+    hhi: float
+    ad_slots: dict[str, int] = Field(default_factory=dict)
+    holders: list[AdvertiserShare] = Field(default_factory=list)
+    top_advertisers: list[AdvertiserShare] = Field(default_factory=list)
+    fetched_at: float
+    source: str
+    cached: bool = False
+    include_organic: bool = False
+    notes: list[str] = Field(default_factory=list)
+
+
+class MonopolyReportResult(Result):
+    country: str | None = None
+    keywords: list[KeywordMonopoly] = Field(default_factory=list)
+    blocked: list[str] = Field(default_factory=list)
+    blocked_url: str | None = None
+    failed: dict[str, str] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)

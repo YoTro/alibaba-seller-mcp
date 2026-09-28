@@ -79,6 +79,32 @@ class Config:
     # real money per attempt; the platform's own rate limits cover the rest.
     ai_token_budget: int = 0
 
+    # ── alibaba.com buyer site (keyword ads / monopoly rate) ─────────────
+    # A browser's Cookie header for www.alibaba.com (no login needed). Optional,
+    # but after the anti-bot slider has been passed once in a browser, its cookies
+    # let this client through too. Defaults to <state_dir>/market_cookie.txt.
+    market_cookie_file: Path | None = None
+    # Seconds between live search requests, and how long a keyword's snapshot is
+    # reused before it is fetched again (buyout slots change once a year).
+    market_min_interval: float = 10.0
+    market_cache_ttl_hours: float = 24.0
+    market_country: str = "US"
+    # When the search page comes back as the anti-bot slider, solve it (see market/slider.py)
+    # cheapest route first and retry with the cookies that clears it. Off by default; the
+    # browser tier needs `pip install camoufox playwright` + `python -m camoufox fetch`.
+    market_solve_slider: bool = False
+    market_slider_headless: bool = True          # run the browser tier headless
+    market_slider_os: str = "macos"              # Camoufox OS fingerprint
+    # Template replay (see market/slider.py): re-sign blocks captured from a real drag and
+    # pass the slider over plain HTTP. On by default — with no template yet it is skipped,
+    # and the browser tier saves one every time it passes. Each template is used at most
+    # `market_slider_template_uses` times (the reverse-engineering archive validated ≤5).
+    market_slider_algo: bool = True
+    market_slider_template_uses: int = 5
+    # Headless Node signer: passes, but still needs a browser and is heavier than it. Dev-only.
+    market_slider_headless_sign: bool = False
+    market_headless_signer_dir: Path | None = None
+
     @property
     def token_store_path(self) -> Path:
         return self.state_dir / "tokens.json"
@@ -86,6 +112,18 @@ class Config:
     @property
     def usage_log_path(self) -> Path:
         return self.state_dir / "usage.jsonl"
+
+    @property
+    def market_snapshot_path(self) -> Path:
+        return self.state_dir / "market_snapshots.jsonl"
+
+    @property
+    def market_slider_template_dir(self) -> Path:
+        return self.state_dir / "slider_templates"
+
+    @property
+    def market_cookie_path(self) -> Path:
+        return self.market_cookie_file or self.state_dir / "market_cookie.txt"
 
     def require_alibaba(self) -> None:
         """Raise if the Alibaba credentials needed for signed calls are missing."""
@@ -114,6 +152,23 @@ def _int_env(name: str, default: int) -> int:
         raise RuntimeError(f"{name} must be a whole number of tokens, got {raw!r}") from exc
 
 
+def _float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(0.0, float(raw))
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a number, got {raw!r}") from exc
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
 def _allowed_paths() -> tuple[Path, ...]:
     raw = os.environ.get("ALIBABA_MCP_ALLOWED_DIRS", "")
     if not raw.strip():
@@ -126,6 +181,23 @@ def load_config() -> Config:
     return Config(
         allowed_paths=_allowed_paths(),
         ai_token_budget=_int_env("ALIBABA_MCP_AI_TOKEN_BUDGET", 0),
+        market_cookie_file=(
+            Path(os.environ["ALIBABA_MARKET_COOKIE_FILE"]).expanduser()
+            if os.environ.get("ALIBABA_MARKET_COOKIE_FILE", "").strip() else None
+        ),
+        market_min_interval=_float_env("ALIBABA_MARKET_MIN_INTERVAL", 10.0),
+        market_cache_ttl_hours=_float_env("ALIBABA_MARKET_CACHE_TTL_HOURS", 24.0),
+        market_country=os.environ.get("ALIBABA_MARKET_COUNTRY", "US").strip().upper() or "US",
+        market_solve_slider=_bool_env("ALIBABA_MARKET_SOLVE_SLIDER", False),
+        market_slider_headless=_bool_env("ALIBABA_MARKET_SLIDER_HEADLESS", True),
+        market_slider_os=os.environ.get("ALIBABA_MARKET_SLIDER_OS", "macos").strip() or "macos",
+        market_slider_algo=_bool_env("ALIBABA_MARKET_SLIDER_ALGO", True),
+        market_slider_template_uses=_int_env("ALIBABA_MARKET_SLIDER_TEMPLATE_USES", 5),
+        market_slider_headless_sign=_bool_env("ALIBABA_MARKET_SLIDER_HEADLESS_SIGN", False),
+        market_headless_signer_dir=(
+            Path(os.environ["ALIBABA_MARKET_HEADLESS_SIGNER_DIR"]).expanduser()
+            if os.environ.get("ALIBABA_MARKET_HEADLESS_SIGNER_DIR", "").strip() else None
+        ),
         app_key=os.environ.get("ALIBABA_APP_KEY", ""),
         app_secret=os.environ.get("ALIBABA_APP_SECRET", ""),
         redirect_uri=os.environ.get("ALIBABA_REDIRECT_URI", ""),
